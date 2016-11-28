@@ -62,10 +62,16 @@ server provided by `cherrymusic <http://www.fomori.org/cherrymusic/>`_.
 
 
     class HTTPHandler(cherrymusicserver.httphandler.HTTPHandler):
+        '''
+        Dummy HTTPHandler for cherrymusicserver
+        '''
         def autoLoginActive(self):
             return True
 
     class Root(object):
+        '''
+        Dummy handler for cherrypy router
+        '''
         pass
 
     cherrymusicserver.httphandler.HTTPHandler = HTTPHandler
@@ -92,6 +98,12 @@ server provided by `cherrymusic <http://www.fomori.org/cherrymusic/>`_.
         directory_upload = media_path,
         plugin_modules = ['player'],
     )
+    # enable player player-directory-play feature
+    browsepy_plugins.load_arguments([
+        '--plugin=player',
+        '--player-directory-play'
+    ])
+    # load plugins (based on app.config plugin_modules)
     plugin_manager.reload()
 
     if __name__ == '__main__':
