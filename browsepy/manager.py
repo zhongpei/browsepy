@@ -416,7 +416,7 @@ class MimetypePluginManager(RegistrablePluginManager):
         a mimetype string or None.
 
         :param fnc: callable accepting a path string
-        :type fnc: callable
+        :type fnc: collections.abc.Callable
         '''
         self._mimetype_functions.insert(0, fnc)
 
@@ -512,6 +512,22 @@ class ArgumentPluginManager(PluginManagerBase):
         :returns: command-line argument or default value
         '''
         return getattr(self._argparse_arguments, name, default)
+
+
+class CachePluginManager(RegistrablePluginManager):
+    '''
+    Plugin manager for cache backend registration.
+
+    Takes plugin backends from both app config and external plugins.
+    '''
+    dummy_cache_class = dict
+
+    def register_cache_backend(self, cache_backend):
+        self._cache_backends.append(cache_backend(app=self.app))
+
+    def clear(self):
+        self._cache_backends = []
+        super(CachePluginManager, self).clear()
 
 
 class MimetypeActionPluginManager(WidgetPluginManager, MimetypePluginManager):
@@ -661,7 +677,8 @@ class MimetypeActionPluginManager(WidgetPluginManager, MimetypePluginManager):
 
 class PluginManager(MimetypeActionPluginManager,
                     BlueprintPluginManager, WidgetPluginManager,
-                    MimetypePluginManager, ArgumentPluginManager):
+                    MimetypePluginManager, ArgumentPluginManager,
+                    CachePluginManager):
     '''
     Main plugin manager
 

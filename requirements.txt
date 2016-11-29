@@ -1,5 +1,6 @@
 flask
 scandir
+watchdog
 sphinx
 pep8
 flake8
