@@ -10,6 +10,7 @@ import collections
 from flask import current_app
 from werkzeug.utils import cached_property
 
+from . import event
 from . import mimetype
 from . import compat
 from .compat import deprecated, usedoc
@@ -63,6 +64,8 @@ class PluginManagerBase(object):
         return self.app.config['plugin_namespaces'] if self.app else []
 
     def __init__(self, app=None):
+        self.event = event.EventManager()
+        self._fs_event_adapter = event.WathdogEventAdapter(self.event)
         if app is None:
             self.clear()
         else:
@@ -87,14 +90,19 @@ class PluginManagerBase(object):
         :data:`self.app.config['plugin_modules']` will be loaded.
         '''
         self.clear()
-        for plugin in self.app.config.get('plugin_modules', ()):
-            self.load_plugin(plugin)
+        if self.app:
+            directory_base = self.app.config.get('directory_base')
+            if directory_base:
+                self._fs_event_adapter.watch(directory_base)
+            for plugin in self.app.config.get('plugin_modules', ()):
+                self.load_plugin(plugin)
 
     def clear(self):
         '''
         Clear plugin manager state.
         '''
-        pass
+        self.event.clear()
+        self._fs_event_adapter.clear()
 
     def import_plugin(self, plugin):
         '''

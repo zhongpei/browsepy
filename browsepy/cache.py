@@ -3,9 +3,6 @@
 import functools
 import threading
 
-from watchdog.observers import Observer as WatchdogObserver
-from watchdog.events import FileSystemEventHandler as WatchdogEventHandler
-
 
 class HashTuple(tuple):
     '''
@@ -260,32 +257,6 @@ class MemoizeManager(object):
             return self(*args, **kwargs)
         wrapped.cache = self
         return wrapped
-
-
-class NodeCacheExpirator(WatchdogEventHandler):
-    pass
-
-
-class NodeCacheManager(object):
-    cache_class = LRUCache
-    NOT_FOUND = object()
-
-    @property
-    def app(self, app):
-        if app != self._app:
-            self.observer.uneschedule_all()
-            self._app = app
-            self.observer.schedule()
-
-    def __init__(self, app=None):
-        self.app = app
-        self._cache = self.cache_class()
-        self._observer = WatchdogObserver()
-
-    def __del__(self):
-        self._observer.uneschedule_all()
-        self._observer.stop()
-        self._observer.join()
 
 
 def cached(func_or_size):

@@ -39,9 +39,13 @@ You can also build yourself from sphinx sources using the documentation
 Screenshots
 -----------
 
-.. image:: https://raw.githubusercontent.com/ergoithz/browsepy/master/doc/screenshot.0.3.1-0.png
-  :target: https://raw.githubusercontent.com/ergoithz/browsepy/master/doc/screenshot.0.3.1-0.png
-  :alt: Screenshot of directory with enabled remove
+.. image:: https://raw.githubusercontent.com/ergoithz/browsepy/master/doc/screenshot.0.5.2-1.png
+  :target: https://raw.githubusercontent.com/ergoithz/browsepy/master/doc/screenshot.0.5.2-1.png
+  :alt: Screenshot of directory with remove, player and directory play.
+
+.. image:: https://raw.githubusercontent.com/ergoithz/browsepy/master/doc/screenshot.0.5.2-0.png
+  :target: https://raw.githubusercontent.com/ergoithz/browsepy/master/doc/screenshot.0.5.2-0.png
+  :alt: Screenshot of player plugin playing a whole directory.
 
 Features
 --------
