@@ -47,7 +47,7 @@ class Event(list):
     def __call__(self, *args, **kwargs):
         self._queue.append((args, kwargs))
         while self._queue:
-            if self._lock.acquire(blocking=False):
+            if self._lock.acquire(False):
                 try:
                     args, kwargs = self._queue.popleft()
                     for f in self:
