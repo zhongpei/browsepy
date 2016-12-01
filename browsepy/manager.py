@@ -13,6 +13,7 @@ from werkzeug.utils import cached_property
 from . import event
 from . import mimetype
 from . import compat
+from . import cache
 from .compat import deprecated, usedoc
 
 
@@ -64,8 +65,6 @@ class PluginManagerBase(object):
         return self.app.config['plugin_namespaces'] if self.app else []
 
     def __init__(self, app=None):
-        self.event = event.EventManager()
-        self._fs_event_adapter = event.WathdogEventAdapter(self.event)
         if app is None:
             self.clear()
         else:
@@ -91,9 +90,6 @@ class PluginManagerBase(object):
         '''
         self.clear()
         if self.app:
-            directory_base = self.app.config.get('directory_base')
-            if directory_base:
-                self._fs_event_adapter.watch(directory_base)
             for plugin in self.app.config.get('plugin_modules', ()):
                 self.load_plugin(plugin)
 
@@ -101,8 +97,7 @@ class PluginManagerBase(object):
         '''
         Clear plugin manager state.
         '''
-        self.event.clear()
-        self._fs_event_adapter.clear()
+        pass
 
     def import_plugin(self, plugin):
         '''
@@ -241,7 +236,7 @@ class WidgetPluginManager(RegistrablePluginManager):
         '''
         Clear plugin manager state.
 
-        Registered widgets will be disposed after calling this method.
+        Registered widgets will be disposed.
         '''
         self._widgets = []
         super(WidgetPluginManager, self).clear()
@@ -394,8 +389,7 @@ class MimetypePluginManager(RegistrablePluginManager):
         '''
         Clear plugin manager state.
 
-        Registered mimetype functions will be disposed after calling this
-        method.
+        Registered mimetype functions will be disposed.
         '''
         self._mimetype_functions = list(self._default_mimetype_functions)
         super(MimetypePluginManager, self).clear()
@@ -487,8 +481,7 @@ class ArgumentPluginManager(PluginManagerBase):
         '''
         Clear plugin manager state.
 
-        Registered command-line arguments will be disposed after calling this
-        method.
+        Registered command-line arguments will be disposed.
         '''
         self._argparse_argkwargs = []
         super(ArgumentPluginManager, self).clear()
@@ -522,20 +515,104 @@ class ArgumentPluginManager(PluginManagerBase):
         return getattr(self._argparse_arguments, name, default)
 
 
-class CachePluginManager(RegistrablePluginManager):
+class EventPluginManager(RegistrablePluginManager):
+    '''
+    Plugin manager for event manager with pluggable event sources.
+    '''
+    _default_event_sources = (
+        event.WathdogEventSource,
+        )
+
+    def __init__(self, app=None):
+        self.event = event.EventManager()
+        self._event_sources = []
+        super(EventPluginManager, self).__init__(app=app)
+
+    def reload(self):
+        '''
+        Clear plugin manager state and reload plugins.
+
+        This method will make use of :meth:`clear` and :meth:`load_plugin`,
+        so all internal state will be cleared, and all plugins defined in
+        :data:`self.app.config['plugin_modules']` will be loaded.
+
+        Also, event sources will be reset and will be registered again by
+        plugins.
+        '''
+        super(EventPluginManager, self).reload()
+        if self.app:
+            event = self.event
+            app = self.app
+            self._event_sources[:] = [
+                source_class(event, app)
+                for source_class in self._default_event_sources
+                ]
+
+    def register_event_source(self, source):
+        '''
+        Register an event source.
+
+        Event source must be a type with a constructor accepting both an
+        :class:`browsepy.event.EventManager` instance and a
+        :class:`flask.Flask` app instance, and must have a :meth:`clear`
+        method.
+
+        :param source: class accepting two parameters with a clear method.
+        :type source: type
+        '''
+        self._event_sources.append(source(self.event, self.app))
+
+    def clear(self):
+        '''
+        Clear plugin manager state.
+
+        Registered events and event sources will be disposed.
+        '''
+        super(EventPluginManager, self).clear()
+        for source in self._event_sources:
+            source.clear()
+        del self._event_sources[:]
+        self.event.clear()
+
+
+class CachePluginManager(EventPluginManager):
     '''
     Plugin manager for cache backend registration.
 
     Takes plugin backends from both app config and external plugins.
     '''
-    dummy_cache_class = dict
+    _default_cache_backends = (
+        cache.LRUCache,
+        )
+
+    def __init__(self, app=None):
+        self._cache_backends = []
+        super(CachePluginManager, self).__init__(app=app)
 
     def register_cache_backend(self, cache_backend):
+        '''
+        Register a cache backemd.
+
+        Cache backends must be a type with a constructor accepting
+        a :class:`flask.Flask` app instance, and must expose a dict-like
+        interface.
+
+        :param source: dict-like class accepting an app instance
+        :type source: type
+        '''
         self._cache_backends.append(cache_backend(app=self.app))
 
     def clear(self):
-        self._cache_backends = []
+        '''
+        Clear plugin manager state.
+
+        * Registered events and event sources will be disposed.
+        * Registered cache backends will be disposed.
+        '''
         super(CachePluginManager, self).clear()
+        for bachend in self._cache_backends:
+            bachend.clear()
+        del self._cache_backends[:]
 
 
 class MimetypeActionPluginManager(WidgetPluginManager, MimetypePluginManager):
@@ -712,12 +789,10 @@ class PluginManager(MimetypeActionPluginManager,
         '''
         Clear plugin manager state.
 
-        Registered widgets will be disposed after calling this method.
-
-        Registered mimetype functions will be disposed after calling this
-        method.
-
-        Registered command-line arguments will be disposed after calling this
-        method.
+        * Registered widgets will be disposed.
+        * Registered mimetype functions will be disposed.
+        * Registered events and event sources will be disposed.
+        * Registered cache backends will be disposed.
+        * Registered command-line arguments will be disposed
         '''
         super(PluginManager, self).clear()

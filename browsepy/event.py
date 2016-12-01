@@ -88,14 +88,15 @@ class EventManager(collections.defaultdict):
     >>> m.e(2)
     g(2)
     '''
-    def __init__(self):
+    def __init__(self, app=None):
+        self.app = app
         super(EventManager, self).__init__(Event)
 
     def __getattr__(self, name):
         return self[name]
 
 
-class WathdogEventAdapter(object):
+class WathdogEventSource(object):
     observer_class = watchdog.observers.Observer
     event_class = collections.namedtuple(
         'FSEvent', ('type', 'path', 'source', 'is_directory')
@@ -108,8 +109,9 @@ class WathdogEventAdapter(object):
         }
     _observer = None
 
-    def __init__(self, manager):
+    def __init__(self, manager, app):
         self.manager = manager
+        self.app = app
 
     def dispatch(self, wevent):
         event = self.event_class(
@@ -129,7 +131,7 @@ class WathdogEventAdapter(object):
     def watch(self, path):
         if not os.path.isdir(path):
             warnings.warn(
-                'Path %r is not observable.',
+                'Path {0!r} is not observable.'.format(path),
                 category=RuntimeWarning,
                 stacklevel=2
                 )
