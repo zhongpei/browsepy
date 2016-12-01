@@ -578,8 +578,6 @@ class EventPluginManager(RegistrablePluginManager):
 class CachePluginManager(EventPluginManager):
     '''
     Plugin manager for cache backend registration.
-
-    Takes plugin backends from both app config and external plugins.
     '''
     _default_cache_backends = (
         cache.LRUCache,
@@ -760,10 +758,9 @@ class MimetypeActionPluginManager(WidgetPluginManager, MimetypePluginManager):
             file=file, place=place)
 
 
-class PluginManager(MimetypeActionPluginManager,
+class PluginManager(CachePluginManager, MimetypeActionPluginManager,
                     BlueprintPluginManager, WidgetPluginManager,
-                    MimetypePluginManager, ArgumentPluginManager,
-                    CachePluginManager):
+                    MimetypePluginManager, ArgumentPluginManager):
     '''
     Main plugin manager
 

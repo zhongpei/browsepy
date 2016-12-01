@@ -232,18 +232,46 @@ dictionary passed as third definition's argument, assuming None by default.
 So keep in mind place and type are always required (otherwise widget won't be
 drawn), and this properties are mutually exclusive:
 
-* **link**: attribute href supersedes endpoint.
-* **button**: attribute href supersedes endpoint.
-* **upload**: attribute action supersedes endpoint.
-* **stylesheet**: attribute href supersedes endpoint and filename
-* **script**: attribute src supersedes endpoint and filename.
+* On **link** widgets, attribute **icon** supersedes **css**.
+* On **link** widgets, attribute **href** supersedes **endpoint**.
+* On **button** widgets, attribute **href** supersedes **endpoint**.
+* On **upload** widgets, attribute **action** supersedes **endpoint**.
+* On **stylesheet** widgets, attribute **href** supersedes **endpoint** and
+  **filename**
+* On **script** widgets, attribute **src** supersedes **endpoint** and
+  **filename**.
 
-Endpoints are Flask endpoint names, and endpoint handler functions must receive
-a "filename" parameter for stylesheet and script widgets (allowing it to point
-using with Flask's statics view) and a "path" argument for other cases. In the
-former case it is recommended to use
+Endpoints, as set on **endpoint**, are Flask endpoint names, and endpoint
+handler functions must receive a **filename** parameter for **stylesheet** and
+**script** widgets (for compatibility with Flask's statics view) or a **path**
+argument for other cases, unless they're are respectively superseded by
+**href** or **src**.
+
+For implementing endpoint functions receiving a path, it is recommended to use
 :meth:`browsepy.file.Node.from_urlpath` static method to create the
 appropriate file/directory object (see :mod:`browsepy.file`).
+
+The ubiquitous **place** attribute defines where widget will be placed, valid values are:
+
+* **styles** for CSS-reserved place, usually on HTML head.
+* **head** for strictly inside HTML head.
+* **scripts** for JavaScript-reserved place, usually at the bottom of HTML
+  body.
+* **header** for content header, before main page content in HTML body.
+* **footer** for content footer, after main page content in HTML body
+* **entry-link** for main entry (file or directory) link shown on list.
+* **entry-actions** for entry (file or directory) buttons shown on list.
+
+The **type** value should be the same as corresponding :attr:`widget_types`
+key, but it's not strictly required.
+
+Either **icon** or **css** value will be put inside the HTML **class**
+attribute of the resulting HTML element for styling.
+
+The value found in **text** will be used as text inside the resulting HTML
+element.
+
+The **html** attribute will allow you to inject raw HTML.
 
 .. _plugins-considerations:
 

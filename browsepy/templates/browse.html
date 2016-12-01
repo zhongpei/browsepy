@@ -113,7 +113,7 @@
             {% for f in file.listdir(sortkey=sort_fnc, reverse=sort_reverse) %}
                 <tr>
                     {% if f.link %}
-                      <td class="icon {{ f.link.icon }}"></td>
+                      <td class="icon {{ f.link.icon or f.link.css }}"></td>
                       <td>{{ draw_widget(f, f.link) }}</td>
                     {% else %}
                       <td></td>

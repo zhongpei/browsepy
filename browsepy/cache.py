@@ -4,6 +4,9 @@ import functools
 import threading
 
 
+NOT_FOUND = object()
+
+
 class HashTuple(tuple):
     '''
     Tuple object with cached __hash__ and __repr__.
@@ -32,7 +35,129 @@ class HashTuple(tuple):
         return res
 
 
-class LRUCache(object):
+class MemoizeManager(object):
+    '''
+    Cache manager object exposed via :attr:`cache` of memoized functions (see
+    :meth:`BaseCache.memoize`).
+    '''
+    hashtuple_class = HashTuple
+    NOT_CACHED = object()
+
+    def __init__(self, cache):
+        self._hits = 0
+        self._misses = 0
+        self._cache = cache
+
+    @property
+    def hits(self):
+        '''
+        :returns: number of times result was cached
+        :rtype: integer
+        '''
+        return self._hits
+
+    @property
+    def misses(self):
+        '''
+        :returns: number of times result was not cached
+        :rtype: integer
+        '''
+        return self._missses
+
+    @classmethod
+    def make_key(cls, args, kwargs, tuple=tuple):
+        '''
+        Make a cache key from optionally typed positional and keyword arguments
+
+        The key is constructed in a way that is flat as possible rather than
+        as a nested structure that would take more memory.
+
+        If there is only a single argument and its data type is known to cache
+        its hash value, then that argument is returned without a wrapper.  This
+        saves space and improves lookup speed.
+        '''
+        key_args = tuple([(arg, arg.__class__) for arg in args])
+        key_kwargs = tuple([
+            (key, value, value.__class__)
+            for key, value in sorted(kwargs.items())
+            ])
+        return cls.hashtuple_class((key_args, key_kwargs))
+
+    def run(self, fnc, *args, **kwargs):
+        key = self.make_key(args, kwargs)
+        result = self._cache.get(key, self.NOT_CACHED)
+        if result is not self.NOT_CACHED:
+            self._hits += 1
+            return result
+        self._misses += 1
+        self._cache[key] = result = fnc(*args, **kwargs)
+        return result
+
+    def pop(self, *args, **kwargs):
+        key = self.make_key(args, kwargs)
+        return self._cache.pop(key, None)
+
+    def clear(self):
+        '''
+        Clear both cache and statistics.
+        '''
+        self._hits = 0
+        self._misses = 0
+        self._cache.clear()
+
+
+class BaseCache(object):
+    '''
+    Abstract cache implementation.
+
+    This class does not really store anything, this is let to implementations.
+    '''
+    memoize_class = MemoizeManager
+
+    def __setitem__(self, key, value):
+        pass
+
+    def __getitem__(self, key):
+        raise KeyError(key)
+
+    def __delitem__(self, key):
+        raise KeyError(key)
+
+    def __contains__(self, key):
+        return False
+
+    def pop(self, key, default=NOT_FOUND):
+        if default is NOT_FOUND:
+            raise KeyError(key)
+        return default
+
+    def get(self, key, default=None):
+        return default
+
+    def clear(self):
+        pass
+
+    def memoize(self, fnc):
+        '''
+        Decorate given function and memoize its results using currente cache.
+
+        :param fnc: function to decorate
+        :type fnc: collections.abc.Callable
+        :param maxsize: optional maximum size (defaults to 1024)
+        :type maxsize: int
+        :returns: wrapped cached function
+        :rtype: function
+        '''
+        manager = self.memoize_class(self)
+
+        @functools.wraps(fnc)
+        def wrapped(*args, **kwargs):
+            return manager.run(fnc, *args, **kwargs)
+        wrapped.cache = manager
+        return wrapped
+
+
+class LRUCache(BaseCache):
     '''
     Cache object evicting least recently used objects (LRU) when maximum cache
     size is reached.
@@ -40,8 +165,6 @@ class LRUCache(object):
     It's way slower than python's :func:`functools.lru_cache` but provides an
     object-oriented implementation and manual cache eviction.
     '''
-    NOT_FOUND = object()
-
     lock_class = threading.RLock
 
     @property
@@ -96,7 +219,7 @@ class LRUCache(object):
         if link is not None:
             self._bumpitem(key)
             return link[RESULT]
-        if default is self.NOT_FOUND:
+        if default is NOT_FOUND:
             raise KeyError(key)
         return default
 
@@ -127,7 +250,7 @@ class LRUCache(object):
 
     def _popitem(self, key, default=NOT_FOUND):
         PREV, NEXT = 0, 1
-        if default is self.NOT_FOUND:
+        if default is NOT_FOUND:
             link_prev, link_next, key, result = self._cache.pop(key)
         else:
             link_prev, link_next, key, result = self._cache.pop(key, default)
@@ -166,101 +289,3 @@ class LRUCache(object):
             self._hits = 0
             self._misses = 0
             self._full = False
-
-
-class MemoizeManager(object):
-    cache_class = LRUCache
-    hashtuple_class = HashTuple
-    NOT_FOUND = object()
-
-    def __init__(self, fnc, maxsize=1024):
-        self._fnc = fnc
-        self._hits = 0
-        self._misses = 0
-        self._cache = self.cache_class(maxsize)
-
-    @property
-    def hits(self):
-        '''
-        :returns: number of times result was cached
-        :rtype: integer
-        '''
-        return self._hits
-
-    @property
-    def misses(self):
-        '''
-        :returns: number of times result was not cached
-        :rtype: integer
-        '''
-        return self._missses
-
-    @classmethod
-    def make_key(cls, args, kwargs, tuple=tuple):
-        '''
-        Make a cache key from optionally typed positional and keyword arguments
-
-        The key is constructed in a way that is flat as possible rather than
-        as a nested structure that would take more memory.
-
-        If there is only a single argument and its data type is known to cache
-        its hash value, then that argument is returned without a wrapper.  This
-        saves space and improves lookup speed.
-        '''
-        key_args = tuple([(arg, arg.__class__) for arg in args])
-        key_kwargs = tuple([
-            (key, value, value.__class__)
-            for key, value in sorted(kwargs.items())
-            ])
-        return cls.hashtuple_class((key_args, key_kwargs))
-
-    def __call__(self, *args, **kwargs):
-        NOT_FOUND = self.NOT_FOUND
-        key = self.make_key(args, kwargs)
-        result = self._cache.get(key, NOT_FOUND)
-        if result is not NOT_FOUND:
-            self._hits += 1
-            return result
-        self._misses += 1
-        self._cache[key] = result = self._fnc(*args, **kwargs)
-        return result
-
-    def pop(self, *args, **kwargs):
-        key = self.make_key(args, kwargs)
-        return self._cache.pop(key, None)
-
-    def clear(self):
-        '''
-        Clear both cache and statistics.
-        '''
-        self._hits = 0
-        self._misses = 0
-        self._cache.clear()
-
-    @classmethod
-    def wrap(cls, fnc, maxsize=1024):
-        '''
-        Decorate given function with a CancelableLRUCache instance.
-
-        :param fnc: function to decorate
-        :type fnc: collections.abc.Callable
-        :param maxsize: optional maximum size (defaults to 1024)
-        :type maxsize: int
-        :returns: wrapped cached function
-        :rtype: function
-        '''
-
-        self = cls(fnc, maxsize)
-
-        @functools.wraps(fnc)
-        def wrapped(*args, **kwargs):
-            return self(*args, **kwargs)
-        wrapped.cache = self
-        return wrapped
-
-
-def cached(func_or_size):
-    def inner(func):
-        size = 1024 if func is func_or_size else func_or_size
-        return MemoizeManager.wrap(func, size)
-    return inner(func_or_size) if callable(func_or_size) else inner

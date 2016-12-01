@@ -93,6 +93,8 @@ class EventManager(collections.defaultdict):
         super(EventManager, self).__init__(Event)
 
     def __getattr__(self, name):
+        if name.startswith('_'):
+            return super(Event, self).__getattr__(name)
         return self[name]
 
 
@@ -103,15 +105,16 @@ class WathdogEventSource(object):
         )
     event_map = {
         watchdog.events.EVENT_TYPE_MOVED: 'fs_move',
-        watchdog.events.EVENT_TYPE_DELETED: 'fs_create',
-        watchdog.events.EVENT_TYPE_CREATED: 'fs_modify',
-        watchdog.events.EVENT_TYPE_MODIFIED: 'fs_remove'
+        watchdog.events.EVENT_TYPE_DELETED: 'fs_remove',
+        watchdog.events.EVENT_TYPE_CREATED: 'fs_create',
+        watchdog.events.EVENT_TYPE_MODIFIED: 'fs_modify'
         }
     _observer = None
 
-    def __init__(self, manager, app):
+    def __init__(self, manager, app=None):
         self.manager = manager
         self.app = app
+        self.reload()
 
     def dispatch(self, wevent):
         event = self.event_class(
@@ -128,19 +131,22 @@ class WathdogEventSource(object):
         self.manager[event.type](event)
         self.manager[event_type_specific](event)
 
-    def watch(self, path):
+    def reload(self):
+        self.clear()
+        path = self.app.config.get('base_directory') if self.app else None
+        if not path:
+            return
         if not os.path.isdir(path):
             warnings.warn(
                 'Path {0!r} is not observable.'.format(path),
                 category=RuntimeWarning,
                 stacklevel=2
-                )
+                    )
             return
-        observer = self._observer or self.observer_class()
+        observer = self.observer_class()
         observer.schedule(self, path, recursive=True)
-        if not self._observer:
-            observer.start()
-            self._observer = observer
+        observer.start()
+        self._observer = observer
 
     def clear(self):
         observer = self._observer
@@ -148,4 +154,4 @@ class WathdogEventSource(object):
             observer.unschedule_all()
             observer.stop()
             observer.join()
-        self._observer = None
+            self._observer = None
