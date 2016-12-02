@@ -125,7 +125,7 @@ class WathdogEventSource(object):
             )
         event_type_specific = '%s_%s' % (
             event.type,
-            'file' if event.is_directory else 'directory'
+            'directory' if event.is_directory else 'file'
             )
         self.manager['fs_any'](event)
         self.manager[event.type](event)
@@ -141,7 +141,7 @@ class WathdogEventSource(object):
                 'Path {0!r} is not observable.'.format(path),
                 category=RuntimeWarning,
                 stacklevel=2
-                    )
+                )
             return
         observer = self.observer_class()
         observer.schedule(self, path, recursive=True)

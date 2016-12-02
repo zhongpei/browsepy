@@ -2,6 +2,7 @@
 import os
 import os.path
 import tempfile
+import contextlib
 import shutil
 import unittest
 import collections
@@ -49,6 +50,7 @@ class EventManagerTest(unittest.TestCase):
 class WathdogEventSourceTest(unittest.TestCase):
     module = browsepy.event
     app_class = collections.namedtuple('App', ('config',))
+    event_class = threading.Event
 
     def setUp(self):
         self.base = tempfile.mkdtemp()
@@ -60,10 +62,23 @@ class WathdogEventSourceTest(unittest.TestCase):
                 })
             )
 
-    def waiter(self, etype):
-        evt = threading.Event()
-        self.manager[etype].append(lambda e: evt.set())
-        return evt
+    @contextlib.contextmanager
+    def assertEvents(self, *etypes,
+                     handler_factory=lambda evt: lambda e: evt.set()):
+        evts = [
+            (etype, event, handler_factory(event))
+            for etype in etypes
+            for etype, event in ((etype, self.event_class()),)
+            ]
+        for etype, event, handler in evts:
+            self.manager[etype].append(handler)
+        yield
+        for etype, event, handler in evts:
+            self.assertTrue(
+                event.wait(timeout=1),
+                'Event %r not received' % etype
+                )
+            self.manager[etype].remove(handler)
 
     def tearDown(self):
         self.source.clear()
@@ -71,18 +86,42 @@ class WathdogEventSourceTest(unittest.TestCase):
 
     def test_events(self):
         events = []
-        waiter = self.waiter('fs_any')
+        base = self.base
+        filepath = os.path.join(self.base, 'file')
+        dirpath = os.path.join(self.base, 'dir')
 
-        @self.manager.fs_any.append
-        def handler(e):
-            events.append((
-                e.type,
-                '/' if e.path == self.base else e.path[len(self.base):]
-            ))
+        self.manager.fs_any.append(lambda e: events.append((e.type, e.path)))
 
-        open(os.path.join(self.base, 'asdf'), 'w').close()
-        self.assertTrue(waiter.wait(timeout=10))
+        with self.assertEvents('fs_any', 'fs_create', 'fs_modify',
+                               'fs_create_file', 'fs_modify_directory'):
+            open(filepath, 'w').close()
+
+        with self.assertEvents('fs_any', 'fs_modify',
+                               'fs_modify_file'):
+            with open(filepath, 'w') as f:
+                f.write('a')
+                f.close()
+
+        with self.assertEvents('fs_any', 'fs_remove', 'fs_modify',
+                               'fs_modify_directory'):
+            os.remove(filepath)
+
+        with self.assertEvents('fs_any', 'fs_create', 'fs_modify',
+                               'fs_create_directory', 'fs_modify_directory'):
+            os.mkdir(dirpath)
+
+        with self.assertEvents('fs_any', 'fs_remove', 'fs_modify',
+                               'fs_modify_directory'):
+            os.rmdir(dirpath)
+
         self.assertListEqual(events, [
-            ('fs_create', '/asdf'),
-            ('fs_modify', '/'),
+            ('fs_create', filepath),
+            ('fs_modify', base),
+            ('fs_modify', filepath),
+            ('fs_remove', filepath),
+            ('fs_modify', base),
+            ('fs_create', dirpath),
+            ('fs_modify', base),
+            ('fs_remove', dirpath),
+            ('fs_modify', base),
             ])
