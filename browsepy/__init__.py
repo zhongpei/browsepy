@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 app = Flask(
     __name__,
     static_url_path='/static',
-    static_folder=os.path.join(__basedir__, "static"),
-    template_folder=os.path.join(__basedir__, "templates")
+    static_folder=os.path.join(__basedir__, 'static'),
+    template_folder=os.path.join(__basedir__, 'templates')
     )
 app.config.update(
     directory_base=compat.getcwd(),

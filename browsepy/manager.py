@@ -6,8 +6,10 @@ import sys
 import argparse
 import warnings
 import collections
+import functools
 
-from flask import current_app
+import flask
+
 from werkzeug.utils import cached_property
 
 from . import event
@@ -575,30 +577,30 @@ class EventPluginManager(RegistrablePluginManager):
         self.event.clear()
 
 
-class CachePluginManager(EventPluginManager):
+class CachePluginManager(RegistrablePluginManager):
     '''
     Plugin manager for cache backend registration.
     '''
-    _default_cache_backends = (
-        cache.LRUCache,
-        )
+    multi_cache_class = cache.MultiCache
+    fallback_cache_class = cache.LRUCache
 
     def __init__(self, app=None):
-        self._cache_backends = []
+        self._cache_fallback = self.fallback_cache_class()
+        self.cache = cache.MultiCache()
         super(CachePluginManager, self).__init__(app=app)
 
     def register_cache_backend(self, cache_backend):
         '''
-        Register a cache backemd.
+        Register a cache backend.
 
         Cache backends must be a type with a constructor accepting
         a :class:`flask.Flask` app instance, and must expose a dict-like
         interface.
 
-        :param source: dict-like class accepting an app instance
-        :type source: type
+        :param source: werkzeug-cache-compatible object
+        :type source: werkzeug.contrib.cache.BaseCache
         '''
-        self._cache_backends.append(cache_backend(app=self.app))
+        self.cache.backends.append(cache_backend)
 
     def clear(self):
         '''
@@ -608,9 +610,42 @@ class CachePluginManager(EventPluginManager):
         * Registered cache backends will be disposed.
         '''
         super(CachePluginManager, self).clear()
-        for bachend in self._cache_backends:
-            bachend.clear()
-        del self._cache_backends[:]
+        self.cache.backends[:] = (self._cache_fallback,)
+
+    def memoize(self, fnc):
+        '''
+        Decorate given function and memoize its results using currente cache.
+
+        :param fnc: function to decorate
+        :type fnc: collections.abc.Callable
+        :param maxsize: optional maximum size (defaults to 1024)
+        :type maxsize: int
+        :returns: wrapped cached function
+        :rtype: function
+        '''
+        manager = self.memoize_class(self)
+
+        @functools.wraps(fnc)
+        def wrapped(*args, **kwargs):
+            return manager.run(fnc, *args, **kwargs)
+        wrapped.cache = manager
+        return wrapped
+
+    def cached(timeout_or_fnc=5 * 60, key='view/{path}'):
+        timeout = 5 * 60 if callable(timeout_or_fnc) else timeout_or_fnc
+
+        def decorator(f):
+            @functools.wraps(f)
+            def decorated_function(*args, **kwargs):
+                cache_key = key.format(path=flask.request.path)
+                rv = cache.get(cache_key)
+                if rv is not None:
+                    return rv
+                rv = f(*args, **kwargs)
+                cache.set(cache_key, rv, timeout=timeout)
+                return rv
+            return decorated_function
+        return decorator(timeout_or_fnc) if callable(timeout_or_fnc) else decorator
 
 
 class MimetypeActionPluginManager(WidgetPluginManager, MimetypePluginManager):
@@ -640,7 +675,7 @@ class MimetypeActionPluginManager(WidgetPluginManager, MimetypePluginManager):
 
     def _widget_attrgetter(self, widget, name):
         def handler(f):
-            app = f.app or self.app or current_app
+            app = f.app or self.app or flask.current_app
             with app.app_context():
                 return getattr(widget.for_file(f), name)
         return handler
@@ -758,9 +793,15 @@ class MimetypeActionPluginManager(WidgetPluginManager, MimetypePluginManager):
             file=file, place=place)
 
 
-class PluginManager(CachePluginManager, MimetypeActionPluginManager,
-                    BlueprintPluginManager, WidgetPluginManager,
-                    MimetypePluginManager, ArgumentPluginManager):
+class PluginManager(
+  CachePluginManager,
+  EventPluginManager,
+  MimetypeActionPluginManager,
+  BlueprintPluginManager,
+  WidgetPluginManager,
+  MimetypePluginManager,
+  ArgumentPluginManager
+  ):
     '''
     Main plugin manager
 

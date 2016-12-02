@@ -1,7 +1,9 @@
 
-
-import functools
+import time
 import threading
+import collections
+
+from werkzeug.contrib.cache import BaseCache
 
 
 NOT_FOUND = object()
@@ -106,66 +108,18 @@ class MemoizeManager(object):
         self._cache.clear()
 
 
-class BaseCache(object):
+class SafeSimpleCache(BaseCache):
     '''
-    Abstract cache implementation.
+    Simple memory cache for simgle process environments. Thread safe using
+    :attr:`lock_class` (threading.Lock)
 
-    This class does not really store anything, this is let to implementations.
-    '''
-    memoize_class = MemoizeManager
-
-    def __setitem__(self, key, value):
-        pass
-
-    def __getitem__(self, key):
-        raise KeyError(key)
-
-    def __delitem__(self, key):
-        raise KeyError(key)
-
-    def __contains__(self, key):
-        return False
-
-    def pop(self, key, default=NOT_FOUND):
-        if default is NOT_FOUND:
-            raise KeyError(key)
-        return default
-
-    def get(self, key, default=None):
-        return default
-
-    def clear(self):
-        pass
-
-    def memoize(self, fnc):
-        '''
-        Decorate given function and memoize its results using currente cache.
-
-        :param fnc: function to decorate
-        :type fnc: collections.abc.Callable
-        :param maxsize: optional maximum size (defaults to 1024)
-        :type maxsize: int
-        :returns: wrapped cached function
-        :rtype: function
-        '''
-        manager = self.memoize_class(self)
-
-        @functools.wraps(fnc)
-        def wrapped(*args, **kwargs):
-            return manager.run(fnc, *args, **kwargs)
-        wrapped.cache = manager
-        return wrapped
-
-
-class LRUCache(BaseCache):
-    '''
     Cache object evicting least recently used objects (LRU) when maximum cache
-    size is reached.
+    size is reached, so keys could be discarded independently of their
+    timeout.
 
-    It's way slower than python's :func:`functools.lru_cache` but provides an
-    object-oriented implementation and manual cache eviction.
     '''
-    lock_class = threading.RLock
+    lock_class = threading.Lock
+    time_func = time.time
 
     @property
     def full(self):
@@ -191,101 +145,230 @@ class LRUCache(BaseCache):
         '''
         return self._maxsize
 
-    def __init__(self, maxsize=1024):
+    def __init__(self, default_timeout=300, maxsize=1024):
         '''
         :param fnc:
         :type fnc: collections.abc.Callable
         :param maxsize: optional maximum cache size (defaults to 1024)
         :type maxsize: int
         '''
+        self._default_timeout = default_timeout
         self._cache = {}
         self._full = False
         self._maxsize = maxsize
         self._lock = self.lock_class()
-        self._root = root = []
-        root[:] = [root, root, None, None]
+        self._lru_key = None
 
-    def _bumpitem(self, key):
+    def _extract(self, link):
+        '''
+        Pop given link from circular list.
+        '''
         PREV, NEXT = 0, 1
-        root = self._root
-        last = root[PREV]
-        last[NEXT] = root[PREV] = link = self._cache[key]
-        link[PREV] = last
-        link[NEXT] = root
+        prev = link[PREV]
+        next = link[NEXT]
+        prev[NEXT] = next
+        next[PREV] = prev
+        return link
+
+    def _insert(self, link):
+        '''
+        Set given link as mru.
+        '''
+        PREV, NEXT = 0, 1
+        next = self._cache.get(self._lru_key) if self._cache else link
+        prev = next[PREV]
+        link[:2] = (prev, next)
+        prev[NEXT] = link
+        next[PREV] = link
+        return link
+
+    def _shift(self, pop=False):
+        '''
+        Transform oldest into newest and return it.
+        '''
+        NEXT, KEY = 1, 2
+        if pop:
+            link = self._cache.pop(self._older_key)
+        else:
+            link = self._cache[self._older_key]
+        self._lru_key = link[NEXT][KEY]
+        return link
+
+    def _bump(self, link):
+        NEXT, KEY = 1, 2
+        if link[KEY] == self._lru_key:
+            return self._shift()
+        if link[NEXT][KEY] == self._lru_key:
+            return link
+        return self._insert(self._extract(link))
 
     def _getitem(self, key, default=NOT_FOUND):
-        RESULT = 3
+        VALUE, EXPIRE = 3, 4
         link = self._cache.get(key)
-        if link is not None:
-            self._bumpitem(key)
-            return link[RESULT]
-        if default is NOT_FOUND:
-            raise KeyError(key)
+        if link is not None and link[EXPIRE] < self.time_func():
+            self._bump(link)
+            return link[VALUE]
         return default
 
-    def _setitem(self, key, value):
-        PREV, NEXT, KEY, RESULT = 0, 1, 2, 3
+    def _setitem(self, key, value, timeout=None):
+        KEY, VALUE = 2, 3
         cache = self._cache
-        root = self._root
-        if key in cache:
-            self._bumpitem(key)
-            root[PREV][RESULT] = value
+        expire = self.time_func() + (
+            self._default_timeout
+            if timeout is None else
+            timeout
+            )
+        link = self._cache.get(key)
+        if link:
+            link = self._bump(link)
+            link[VALUE:] = (value, expire)
         elif self._full:
-            # reuse old root
-            oldroot = root
-            oldroot[KEY] = key
-            oldroot[RESULT] = value
-            root = oldroot[NEXT]
-            oldkey = root[KEY]
-            root[KEY] = root[RESULT] = None
-            del cache[oldkey]
-            cache[key] = oldroot
-            self._root = root
+            link = self._shift(pop=True)
+            link[KEY:] = (key, value, expire)
+            self._cache[key] = link
         else:
-            last = root[PREV]
-            link = [last, root, key, value]
-            last[NEXT] = root[PREV] = cache[key] = link
+            self._cache[key] = self._insert([None, None, key, value, expire])
             self._full = (len(cache) >= self._maxsize)
         return value
 
     def _popitem(self, key, default=NOT_FOUND):
-        PREV, NEXT = 0, 1
-        if default is NOT_FOUND:
-            link_prev, link_next, key, result = self._cache.pop(key)
-        else:
-            link_prev, link_next, key, result = self._cache.pop(key, default)
-        link_prev[NEXT] = link_next
-        link_next[PREV] = link_prev
-        return result
+        VALUE = 3
+        link = self._cache.pop(key, default)
+        return self._extract(link)[VALUE]
 
-    def __getitem__(self, key):
+    def add(self, key, value, timeout=None):
         with self._lock:
-            return self._getitem(key)
+            if key in self._cache:
+                return False
+            self._setitem(key, value, timeout)
+            return True
 
-    def __setitem__(self, key, value):
+    def set(self, key, value, timeout=None):
         with self._lock:
-            return self._setitem(key, value)
+            self._setitem(key, value, timeout)
+            return True
 
-    def __delitem__(self, key):
+    def set_many(self, mapping, timeout=None):
         with self._lock:
-            self._popitem(key)
+            for key, value in mapping.items():
+                self._setitem(key, value, timeout)
+            return True
 
-    def __contains__(self, key):
+    def inc(self, key, delta=1):
+        with self._lock:
+            return self._setitem(key, self._cache.get(key, 0) + delta)
+
+    def dec(self, key, delta=1):
+        return self.inc(key, delta=-delta)
+
+    def delete(self, key):
+        with self._lock:
+            return self._popitem(key) is not NOT_FOUND
+
+    def delete_many(self, *keys):
+        with self._lock:
+            return NOT_FOUND not in [self._popitem(key) for key in keys]
+
+    def get(self, key):
+        with self._lock:
+            return self._getitem(key, None)
+
+    def get_dict(self, *keys):
+        with self._lock:
+            return {key: self._getitem(key, None) for key in keys}
+
+    def get_many(self, *keys):
+        with self._lock:
+            return [self._getitem(key, None) for key in keys]
+
+    def has(self, key):
         return key in self._cache
-
-    def pop(self, key, default=NOT_FOUND):
-        with self._lock:
-            return self._popitem(key, default)
-
-    def get(self, key, default=None):
-        with self._lock:
-            return self._getitem(key, default)
 
     def clear(self):
         with self._lock:
             self._cache.clear()
-            self._root = root = []
-            root[:] = [root, root, None, None]
             self._hits = 0
             self._misses = 0
             self._full = False
+            return True
+
+
+class MultiCache(BaseCache):
+    '''
+    Cache object wrapping multiple caches.
+    '''
+    def __init__(self, backends=None):
+        self.backends = [] if backends is None else backends
+
+    def add(self, key, value, timeout=None):
+        return all([c.add(key, value, timeout) for c in self.backends])
+
+    def set(self, key, value, timeout=None):
+        return all([c.set(key, value, timeout) for c in self.backends])
+
+    def set_many(self, mapping, timeout=None):
+        return all([c.set_many(mapping, timeout) for c in self.backends])
+
+    def _sync(self, key, value, results):
+        for backend, partial in results.iteritems():
+            if partial != value:
+                backend.set(key, value)
+
+    def inc(self, key, delta=1):
+        results = {c: c.inc(key, delta=delta) for c in self.backends}
+        value = results[max(results, key=results.get)]
+        self._sync(key, value, results)
+        return value
+
+    def dec(self, key, delta=1):
+        results = {c: c.dec(key, delta=delta) for c in self.backends}
+        value = results[min(results, key=results.get)]
+        self._sync(key, value, results)
+        return value
+
+    def delete(self, key):
+        '''
+        Delete key from all caches.
+
+        :param key:
+        :type key: string
+        :returns wWhether the key existed on any backend and has been deleted.
+        :rtype: bool
+        '''
+        return any([c.delete(key) for c in self.backends])
+
+    def delete_many(self, *keys):
+        return any([c.delete_many(*keys) for c in self.backends])
+
+    def get(self, key):
+        for backend in self.backends:
+            result = backend.get(key)
+            if result is not None:
+                return result
+        return None
+
+    def _getmany(self, keys, ordered=False):
+        remaining = set(keys)
+        if ordered:
+            result = collections.OrderedDict((key, None) for key in keys)
+        else:
+            result = {key: None for key in keys}
+        for backend in self.backends:
+            partial = backend.get_dict(*remaining)
+            result.update(partial)
+            remaining -= {k for k, v in partial.items() if v is not None}
+            if not remaining:
+                return
+        return result
+
+    def get_dict(self, *keys):
+        return self._getmany(keys)
+
+    def get_many(self, *keys):
+        return list(self._getmany(keys, ordered=True).values())
+
+    def has(self, key):
+        return any(c.has(key) for c in self._cache)
+
+    def clear(self):
+        return all([c.clear() for c in self.backends])
