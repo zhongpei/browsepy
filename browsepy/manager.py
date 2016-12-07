@@ -612,7 +612,7 @@ class EventPluginManager(RegistrablePluginManager):
     def __init__(self, app=None):
         self.event = event.EventManager()
         self._event_sources = []
-        self._event_source_has_cache = {}
+        self._event_source_classes = set()
         super(EventPluginManager, self).__init__(app=app)
 
     def load_events(self):
@@ -632,15 +632,9 @@ class EventPluginManager(RegistrablePluginManager):
         Also, event sources will be reset and will be registered again by
         plugins.
         '''
-        if self.app:
-            event = self.event
-            app = self.app
-            self._event_sources = [
-                source_class(event, app)
-                for source_class in self._default_event_sources
-                if source_class.check(app)
-                ]
         super(EventPluginManager, self).reload()
+        for source_class in self._default_event_sources:
+            self.register_event_source(source_class)
         self.load_events()
 
     def register_event_source(self, event_source_class):
@@ -649,8 +643,8 @@ class EventPluginManager(RegistrablePluginManager):
 
         Event source must be a type with a constructor accepting both an
         :class:`browsepy.event.EventManager` instance and a
-        :class:`flask.Flask` app instance, and must have a :meth:`clear`
-        method.
+        :class:`flask.Flask` app instance, and must have both :meth:`clear`
+        and :meth:`check` methods.
 
         :param source: class accepting two parameters with a clear method.
         :type source: type
@@ -658,6 +652,7 @@ class EventPluginManager(RegistrablePluginManager):
         if event_source_class.check(self.app):
             event_source = event_source_class(self.event, self.app)
             self._event_sources.append(event_source)
+            self._event_source_classes.add(event_source_class)
 
     def has_event_source(self, event_source_class):
         '''
@@ -677,12 +672,7 @@ class EventPluginManager(RegistrablePluginManager):
         :returns: if a given class have been registered in current manager
         :rtype: bool
         '''
-        if event_source_class not in self._event_source_has_cache:
-            self._event_source_has_cache[event_source_class] = any(
-                source.__class__ is event_source_class
-                for source in self._event_sources
-                )
-        return self._event_source_has_cache[event_source_class]
+        return event_source_class in self._event_source_classes
 
     def clear(self):
         '''
@@ -694,7 +684,7 @@ class EventPluginManager(RegistrablePluginManager):
         for source in self._event_sources:
             source.clear()
         del self._event_sources[:]
-        self._event_source_has_cache.clear()
+        self._event_source_classes.clear()
         self.event.clear()
 
 

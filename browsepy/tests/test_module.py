@@ -310,6 +310,7 @@ class TestApp(unittest.TestCase):
             directory_start=self.start,
             directory_remove=self.remove,
             directory_upload=self.upload,
+            disk_cache_enable=False,
             SERVER_NAME='test',
         )
 

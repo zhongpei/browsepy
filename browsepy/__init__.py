@@ -7,8 +7,9 @@ import os.path
 import json
 import base64
 import io
+import gzip
 
-from flask import Flask, Response, request, render_template, redirect, \
+from flask import Flask, request, render_template, redirect, send_file, \
                   url_for, send_from_directory, stream_with_context, \
                   make_response, current_app
 from werkzeug.exceptions import NotFound
@@ -16,7 +17,6 @@ from werkzeug.exceptions import NotFound
 from .__meta__ import __app__, __version__, __license__, __author__  # noqa
 from .file import Node, OutsideRemovableBase, OutsideDirectoryBase, \
                   secure_filename
-from . import event
 from . import compat
 from . import manager
 
@@ -44,9 +44,9 @@ app.config.update(
         'browsepy_',
         '',
         ),
-    cache_enable=True,
+    disk_cache_enable=True,
     cache_class='browsepy.cache:SimpleLRUCache',
-    cache_kwargs={},
+    cache_kwargs={'maxsize': 32},
     cache_browse_key='view/browse<{sort}>/{path}',
     browse_sort_properties=['text', 'type', 'modified', 'size']
     )
@@ -129,35 +129,24 @@ def browse_sortkey_reverse(prop):
         )
 
 
-def template_generator(template_name, **context):
+def cache_template_stream(key, stream):
     '''
-    Template streaming response.
+    Yield and cache jinja template stream.
 
-    :param template_name: template
-    :param **context: parameters for templates.
-    :yields: HTML strings
+    :param key: cache key
+    :type key: str
+    :param stream: jinja template stream
+    :type stream: iterable
+    :yields: rendered jinja template chunks
+    :ytype: str
     '''
-    app.update_template_context(context)
-    template = app.jinja_env.get_template(template_name)
-    return template.generate(context)
-
-
-def caching_template_generator(cache_key, template_name, **context):
-    '''
-    Caching template streaming response.
-
-    :param template_name: template
-    :param **context: parameters for templates.
-    :yields: HTML strings
-    '''
+    buffer = io.BytesIO()
+    with gzip.GzipFile(mode='wb', fileobj=buffer) as f:
+        for part in stream:
+            yield part
+            f.write(part.encode('utf-8'))
     cache = current_app.extensions['plugin_manager'].cache
-    buffer = io.TextIOBase()
-    app.update_template_context(context)
-    template = app.jinja_env.get_template(template_name)
-    for chunk in template.generate(context):
-        yield chunk
-        buffer.write(chunk)
-    cache[cache_key] = buffer.read(), request.url_root
+    cache.set(key, (buffer.getvalue(), request.url_root))
 
 
 def stream_template(template_name, **context):
@@ -170,12 +159,36 @@ def stream_template(template_name, **context):
     :yields: HTML strings
     '''
     cache_key = context.pop('cache_key', None)
+    app.update_template_context(context)
+    stream = app.jinja_env.get_template(template_name).generate(context)
     if cache_key:
-        stream = caching_template_generator(
-            cache_key, template_name, **context)
-    else:
-        stream = template_generator(template_name, **context)
-    return Response(stream_with_context(stream))
+        stream = cache_template_stream(cache_key, stream)
+    return current_app.response_class(stream_with_context(stream))
+
+
+def get_cached_response(key):
+    '''
+    Get cached response object from key.
+
+    :param key: cache key
+    :type key: str
+    :return: response object
+    :rtype: flask.Response
+    '''
+    cache = current_app.extensions['plugin_manager'].cache
+    data, url_root = cache.get(key) or (None, None)
+    if data and url_root == request.url_root:
+        if 'gzip' in request.headers.get('Accept-Encoding', '').lower():
+            response = current_app.response_class(data)
+            response.headers['Content-Encoding'] = 'gzip'
+            response.headers['Vary'] = 'Accept-Encoding'
+            response.headers['Content-Length'] = len(data)
+            return response
+        return send_file(
+            gzip.GzipFile(mode='rb', fileobj=io.BytesIO(data)),
+            mimetype='text/html',
+            as_attachment=False
+            )
 
 
 @app.context_processor
@@ -220,17 +233,16 @@ def sort(property, path):
 def browse(path):
     sort_property = get_cookie_browse_sorting(path, 'text')
 
-    cache_manager = current_app.extensions.get('plugin_manager')
-    cache_key = current_app.config.get('cache_browse_key', '').format(
-        sort=sort_property,
-        path=path
-        )
-    if cache_manager:
-        data, url_root = cache_manager.cache.get(cache_key) or (None, None)
-        if data and url_root == request.url_root:
-            return Response(data)
-        elif not cache_manager.has_event_source(event.WatchdogEventSource):
-            cache_key = None
+    if current_app.config['disk_cache_enable']:
+        cache_key = current_app.config.get('cache_browse_key', '').format(
+            sort=sort_property,
+            path=path
+            )
+        cached_response = get_cached_response(cache_key)
+        if cached_response:
+            return cached_response
+    else:
+        cache_key = None  # disables response cache
 
     sort_fnc, sort_reverse = browse_sortkey_reverse(sort_property)
 

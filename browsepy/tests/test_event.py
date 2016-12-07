@@ -7,6 +7,7 @@ import shutil
 import unittest
 import collections
 import browsepy.event
+import browsepy.manager
 import threading
 
 
@@ -127,3 +128,32 @@ class WatchdogEventSourceTest(unittest.TestCase):
             ('fs_remove', dirpath),
             ('fs_modify', base),
             ])
+
+
+class ManagerTest(unittest.TestCase):
+    module = browsepy.manager
+    source_class = browsepy.event.WatchdogEventSource
+
+    def test_default_sources(self):
+        class app(object):
+            config = {
+                'disk_cache_enable': False
+                }
+        manager = self.module.EventPluginManager(app)
+        self.assertFalse(manager.has_event_source(self.source_class))
+        app.config['disk_cache_enable'] = True
+        manager.reload()
+        self.assertTrue(manager.has_event_source(self.source_class))
+
+    def test_register_source(self):
+        class source(object):
+            def __init__(self, app, manager):
+                pass
+
+            @classmethod
+            def check(cls, app):
+                return True
+        manager = self.module.EventPluginManager()
+        self.assertFalse(manager.has_event_source(source))
+        manager.register_event_source(source)
+        self.assertTrue(manager.has_event_source(source))

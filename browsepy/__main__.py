@@ -48,6 +48,9 @@ class ArgParse(argparse.ArgumentParser):
             '--plugin', metavar='PLUGIN_LIST', type=self._plugin,
             default=[],
             help='comma-separated list of plugins')
+        self.add_argument(
+            '--nodiskcache', action='store_true',
+            help='disable event-based disk caching')
         self.add_argument('--debug', action='store_true', help='debug mode')
 
     def _plugin(self, arg):
@@ -73,7 +76,8 @@ def main(argv=sys.argv[1:], app=app, parser=ArgParse, run_fnc=flask.Flask.run):
         directory_start=args.initial or args.directory,
         directory_remove=args.removable,
         directory_upload=args.upload,
-        plugin_modules=args.plugin
+        plugin_modules=args.plugin,
+        disk_cache_enable=not args.nodiskcache
         )
     plugin_manager.reload()
     run_fnc(
