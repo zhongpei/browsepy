@@ -56,6 +56,13 @@ Features
 * **Optional upload** for directories under given path.
 * **Player** audio player plugin is provided (without transcoding).
 
+New in 0.5.2
+------------
+
+* Directory listing view is now cached with filesystem-event-based expiration,
+  reducing IO and improving performance. This can be disabled with **--nodiskcache** option (ie. when serving network file systems).
+* New cache and event APIs.
+
 New in 0.5
 ----------
 
@@ -148,6 +155,7 @@ plugins (loaded with `plugin` argument) could add extra arguments to this list.
       --removable PATH      base directory for remove (default: none)
       --upload PATH         base directory for upload (default: none)
       --plugin PLUGIN_LIST  comma-separated list of plugins
+      --nodiskcache         disable event-based disk caching
       --debug               debug mode
 
 Using as library
@@ -184,6 +192,11 @@ following configuration options.
   plugin_namespaces) will be loaded.
 * **plugin_namespaces** prefixes for module names listed at plugin_modules
   where relative plugin_modules are searched.
+* **disk_cache_enable** enables disk caching, defaults to **True**.
+* **cache_class** can be set to any werkzeug-compatible cache backend,
+  defaults to "**browsepy.cache:SimpleLRUCache**".
+* **cache_kwargs** is a dictionary with keyword arguments will be passed to
+  **cache_class** constructor.
 
 After editing `plugin_modules` value, plugin manager (available at module
 plugin_manager and app.extensions['plugin_manager']) should be reloaded using
