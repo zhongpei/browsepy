@@ -65,7 +65,7 @@ class WatchdogEventSourceTest(unittest.TestCase):
 
     @contextlib.contextmanager
     def assertEvents(self, *etypes,
-                     handler_factory=lambda evt: lambda e: evt.set()):
+                     handler_factory=(lambda evt: (lambda e: evt.set()))):
         evts = [
             (etype, event, handler_factory(event))
             for etype in etypes
