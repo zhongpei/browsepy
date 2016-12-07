@@ -176,6 +176,33 @@ def usedoc(other):
     return inner
 
 
+def alternative_import(names):
+    '''
+    Import given module name with any of given namespaces.
+
+    :param name:
+    :type name: str
+    :param namespaces: iterable of namespaces as str or None for absolute
+    :type namespaces: iterable
+    :returns: module reference
+    :rtype: module
+    :raises: ImportError
+    '''
+
+    for name in names:
+        if name in sys.modules:
+            return sys.modules[name]
+
+    for name in names:
+        try:
+            __import__(name)
+            return sys.modules[name]
+        except (ImportError, KeyError):
+            pass
+
+    raise ImportError('No module found, tried %r' % names)
+
+
 ENV_PATH = tuple(
   fsdecode(path.strip('"').replace('<SCAPED-PATHSEP>', os.pathsep))
   for path in os

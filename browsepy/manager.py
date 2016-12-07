@@ -2,11 +2,9 @@
 # -*- coding: UTF-8 -*-
 
 import re
-import sys
 import argparse
 import warnings
 import collections
-import functools
 
 import flask
 
@@ -16,6 +14,7 @@ from . import event
 from . import mimetype
 from . import compat
 from . import cache
+from . import file
 from .compat import deprecated, usedoc
 
 
@@ -57,7 +56,12 @@ class InvalidArgumentError(ValueError):
 class PluginManagerBase(object):
     '''
     Base plugin manager for plugin module loading and Flask extension logic.
+
+    :attr app: flask application reference if available
+    :type app: flask.Flask
     '''
+
+    app = None
 
     @property
     def namespaces(self):
@@ -116,20 +120,12 @@ class PluginManagerBase(object):
             for namespace in self.namespaces
             ]
 
-        for name in names:
-            if name in sys.modules:
-                return sys.modules[name]
-
-        for name in names:
-            try:
-                __import__(name)
-                return sys.modules[name]
-            except (ImportError, KeyError):
-                pass
-
-        raise PluginNotFoundError(
-            'No plugin module %r found, tried %r' % (plugin, names),
-            plugin, names)
+        try:
+            return compat.alternative_import(names)
+        except ImportError:
+            raise PluginNotFoundError(
+                'No plugin module %r found, tried %r' % (plugin, names),
+                plugin, names)
 
     def load_plugin(self, plugin):
         '''
@@ -142,10 +138,72 @@ class PluginManagerBase(object):
         return self.import_plugin(plugin)
 
 
+class CachePluginManager(PluginManagerBase):
+    '''
+    Plugin manager exposing a configurable cache object.
+
+    :attr cache: werkzeug-compatible cache object
+    :type cache: werkzeug.contrib.cache.BaseCache
+    '''
+    _default_cache_class = cache.SimpleLRUCache
+
+    def load_cache(self):
+        '''
+        Load cache based on application config.
+
+        Relevant application config properties are `cache_class` and
+        `cache_kwargs`.
+
+        `cache_class` is an import-string as in **my.module:MyClass** or
+        **my.module.MyClass** (the first mode is preferred).
+        '''
+        if self.app and 'cache_class' in self.app.config:
+            name = self.app.config['cache_class']
+            kwargs = self.app.config.get('cache_kwargs', {})
+
+            if ':' in name:
+                module, symbol = name.split(':', 1)
+                names = (module,)
+                symbols = (symbol,)
+            else:
+                parts = name.split('.')
+                names = ['.'.join(parts[:i]) for i in range(len(parts) - 1)]
+                symbols = ['.'.join(parts[i:]) for i in range(len(parts))]
+
+            module = compat.alternative_import(names)
+            symbol = symbols[names.index(module.__name__)]
+
+            cache_class = module
+            for part in symbol.split('.'):
+                cache_class = getattr(cache_class, part)
+
+            self.cache = cache_class(**kwargs)
+
+    def reload(self):
+        '''
+        Clear plugin manager state and reload plugins.
+
+        This method will make use of :meth:`clear` and :meth:`load_plugin`,
+        so all internal state will be cleared, and all plugins defined in
+        :data:`self.app.config['plugin_modules']` will be loaded.
+
+        Also, cache backend will be reloaded based on app config.
+        '''
+        self.load_cache()
+        super(CachePluginManager, self).reload()
+
+    def clear(self):
+        self.cache = self._default_cache_class()
+        super(CachePluginManager, self).clear()
+
+
 class RegistrablePluginManager(PluginManagerBase):
     '''
     Base plugin manager for plugin registration via :func:`register_plugin`
     functions at plugin module level.
+
+    :attr app: flask application reference if available
+    :type app: flask.Flask
     '''
     def load_plugin(self, plugin):
         '''
@@ -170,6 +228,9 @@ class BlueprintPluginManager(RegistrablePluginManager):
 
     Note: blueprints are not removed on `clear` nor reloaded on `reload`
     as flask does not allow it.
+
+    :attr app: flask application reference if available
+    :type app: flask.Flask
     '''
     def __init__(self, app=None):
         self._blueprint_known = set()
@@ -199,6 +260,11 @@ class WidgetPluginManager(RegistrablePluginManager):
     both :meth:`create_widget` and :meth:`register_widget` methods' `type`
     parameter, or instantiated directly and passed to :meth:`register_widget`
     via `widget` parameter.
+
+    :attr app: flask application reference if available
+    :type app: flask.Flask
+    :attr widget_types: widget type mapping
+    :type widget_types: dict
     '''
     widget_types = {
         'base': defaultsnamedtuple(
@@ -380,6 +446,18 @@ class WidgetPluginManager(RegistrablePluginManager):
 class MimetypePluginManager(RegistrablePluginManager):
     '''
     Plugin manager for mimetype-function registration.
+
+    A few default mimetype functions are tried after plugin-defined ones:
+
+    * :func:`browsepy.mimetype.by_python` using python's
+      :func:`mimetypes.guess_type`.
+    * :func:`browsepy.mimetype.by_file`, using POSIX **file** command if
+      available.
+    * :func:`browsepy.mimetype.by_default` always returning
+      "application/octed-stream", a generic mimetype.
+
+    :attr app: flask application reference if available
+    :type app: flask.Flask
     '''
     _default_mimetype_functions = (
         mimetype.by_python,
@@ -435,6 +513,9 @@ class ArgumentPluginManager(PluginManagerBase):
     This is done by :meth:`load_arguments` which imports all plugin modules
     and calls their respective :func:`register_arguments` module-level
     function.
+
+    :attr app: flask application reference if available
+    :type app: flask.Flask
     '''
     _argparse_kwargs = {'add_help': False}
     _argparse_arguments = argparse.Namespace()
@@ -520,15 +601,25 @@ class ArgumentPluginManager(PluginManagerBase):
 class EventPluginManager(RegistrablePluginManager):
     '''
     Plugin manager for event manager with pluggable event sources.
+
+    :attr event: event mapping
+    :type event: browsepy.event.EventManager
     '''
     _default_event_sources = (
-        event.WathdogEventSource,
+        event.WatchdogEventSource,
         )
 
     def __init__(self, app=None):
         self.event = event.EventManager()
         self._event_sources = []
+        self._event_source_has_cache = {}
         super(EventPluginManager, self).__init__(app=app)
+
+    def load_events(self):
+        '''
+        Load default event handlers.
+        '''
+        pass
 
     def reload(self):
         '''
@@ -541,16 +632,18 @@ class EventPluginManager(RegistrablePluginManager):
         Also, event sources will be reset and will be registered again by
         plugins.
         '''
-        super(EventPluginManager, self).reload()
         if self.app:
             event = self.event
             app = self.app
-            self._event_sources[:] = [
+            self._event_sources = [
                 source_class(event, app)
                 for source_class in self._default_event_sources
+                if source_class.check(app)
                 ]
+        super(EventPluginManager, self).reload()
+        self.load_events()
 
-    def register_event_source(self, source):
+    def register_event_source(self, event_source_class):
         '''
         Register an event source.
 
@@ -562,7 +655,34 @@ class EventPluginManager(RegistrablePluginManager):
         :param source: class accepting two parameters with a clear method.
         :type source: type
         '''
-        self._event_sources.append(source(self.event, self.app))
+        if event_source_class.check(self.app):
+            event_source = event_source_class(self.event, self.app)
+            self._event_sources.append(event_source)
+
+    def has_event_source(self, event_source_class):
+        '''
+        Check if given event_source class is loaded.
+
+        This is necessary as event sources can prevent themselves from being
+        added to current manager using their
+        :meth:`browsepy.event.EventSource.check`
+        classmethod.
+
+        Code relying on events generated from an event source can use this
+        method to enable fallback code when needed.
+
+        :param event_source_class: class reference, as given to
+                                   :meth:`register_event_source`
+        :type event_source_class: type
+        :returns: if a given class have been registered in current manager
+        :rtype: bool
+        '''
+        if event_source_class not in self._event_source_has_cache:
+            self._event_source_has_cache[event_source_class] = any(
+                source.__class__ is event_source_class
+                for source in self._event_sources
+                )
+        return self._event_source_has_cache[event_source_class]
 
     def clear(self):
         '''
@@ -574,78 +694,8 @@ class EventPluginManager(RegistrablePluginManager):
         for source in self._event_sources:
             source.clear()
         del self._event_sources[:]
+        self._event_source_has_cache.clear()
         self.event.clear()
-
-
-class CachePluginManager(RegistrablePluginManager):
-    '''
-    Plugin manager for cache backend registration.
-    '''
-    multi_cache_class = cache.MultiCache
-    fallback_cache_class = cache.LRUCache
-
-    def __init__(self, app=None):
-        self._cache_fallback = self.fallback_cache_class()
-        self.cache = cache.MultiCache()
-        super(CachePluginManager, self).__init__(app=app)
-
-    def register_cache_backend(self, cache_backend):
-        '''
-        Register a cache backend.
-
-        Cache backends must be a type with a constructor accepting
-        a :class:`flask.Flask` app instance, and must expose a dict-like
-        interface.
-
-        :param source: werkzeug-cache-compatible object
-        :type source: werkzeug.contrib.cache.BaseCache
-        '''
-        self.cache.backends.append(cache_backend)
-
-    def clear(self):
-        '''
-        Clear plugin manager state.
-
-        * Registered events and event sources will be disposed.
-        * Registered cache backends will be disposed.
-        '''
-        super(CachePluginManager, self).clear()
-        self.cache.backends[:] = (self._cache_fallback,)
-
-    def memoize(self, fnc):
-        '''
-        Decorate given function and memoize its results using currente cache.
-
-        :param fnc: function to decorate
-        :type fnc: collections.abc.Callable
-        :param maxsize: optional maximum size (defaults to 1024)
-        :type maxsize: int
-        :returns: wrapped cached function
-        :rtype: function
-        '''
-        manager = self.memoize_class(self)
-
-        @functools.wraps(fnc)
-        def wrapped(*args, **kwargs):
-            return manager.run(fnc, *args, **kwargs)
-        wrapped.cache = manager
-        return wrapped
-
-    def cached(timeout_or_fnc=5 * 60, key='view/{path}'):
-        timeout = 5 * 60 if callable(timeout_or_fnc) else timeout_or_fnc
-
-        def decorator(f):
-            @functools.wraps(f)
-            def decorated_function(*args, **kwargs):
-                cache_key = key.format(path=flask.request.path)
-                rv = cache.get(cache_key)
-                if rv is not None:
-                    return rv
-                rv = f(*args, **kwargs)
-                cache.set(cache_key, rv, timeout=timeout)
-                return rv
-            return decorated_function
-        return decorator(timeout_or_fnc) if callable(timeout_or_fnc) else decorator
 
 
 class MimetypeActionPluginManager(WidgetPluginManager, MimetypePluginManager):
@@ -813,16 +863,60 @@ class PluginManager(
         * Widget registration via :meth:`register_widget` method.
         * Mimetype function registration via :meth:`register_mimetype_function`
           method.
+        * Event source class registration via :meth:`register_event_source`
+          method.
         * Command-line argument registration calling :func:`register_arguments`
           at plugin module level and providing :meth:`register_argument`
           method.
+        * An :attr:`event` attribute pointing to a
+          :class:`browsepy.event.EventManager` instance.
+        * A :attr:`cache` attributee pointing to a
+          :class:`werkzeug.contrib.cache.BaseCache`-like instance.
 
     This class also provides a dictionary of widget types at its
     :attr:`widget_types` attribute. They can be referenced by their keys on
     both :meth:`create_widget` and :meth:`register_widget` methods' `type`
     parameter, or instantiated directly and passed to :meth:`register_widget`
     via `widget` parameter.
+
+    :attr app: flask application reference if available
+    :type app: flask.Flask
+    :attr widget_types: widget type mapping
+    :type widget_types: dict
+    :attr event: event mapping
+    :type event: browsepy.event.EventManager
+    :attr cache: werkzeug-compatible cache object
+    :type cache: werkzeug.contrib.cache.BaseCache
     '''
+
+    def load_events(self):
+        '''
+        Load default browsepy event handlers:
+
+        * **fs_any** clearing browse endpoint cache
+        '''
+
+        def event_urlpaths(e):
+            paths = (e.path,) if e.path == e.source else (e.path, e.source)
+            for path in paths:
+                f = file.Node.from_urlpath(file.abspath_to_urlpath(path))
+                if f.is_directory:
+                    yield f.urlpath
+                for ancestor in f.ancestors:
+                    yield ancestor.urlpath
+
+        def clear_browse_cache(e):
+            keyfmt = self.app.config['cache_browse_key'].format
+            orderfmt = '{}{}'.format
+            self.cache.delete_many(*[
+                keyfmt(sort=orderfmt(order, prop), path=urlpath)
+                for urlpath in event_urlpaths(e)
+                for prop in self.app.config['browse_sort_properties']
+                for order in ('', '-')
+                ])
+
+        self.event['fs_any'].append(clear_browse_cache)
+
     def clear(self):
         '''
         Clear plugin manager state.
@@ -830,7 +924,6 @@ class PluginManager(
         * Registered widgets will be disposed.
         * Registered mimetype functions will be disposed.
         * Registered events and event sources will be disposed.
-        * Registered cache backends will be disposed.
         * Registered command-line arguments will be disposed
         '''
         super(PluginManager, self).clear()

@@ -5,6 +5,7 @@ import warnings
 import os.path
 
 import watchdog.observers
+import watchdog.observers.polling
 import watchdog.events
 
 
@@ -63,7 +64,7 @@ class Event(list):
 
 class EventManager(collections.defaultdict):
     '''
-    Attribute-dict creating :class:`Event` objects on demand.
+    Dict-like of :class:`Event` objects.
 
     Usage:
     >>> def f(x):
@@ -76,30 +77,77 @@ class EventManager(collections.defaultdict):
     >>> m.e.append(f)
     >>> 'e' in m
     True
-    >>> m.e(123)
+    >>> m['e'](123)
     f(123)
-    >>> m.e.remove(f)
-    >>> m.e()
-    >>> m.e += (f, g)
-    >>> m.e(10)
+    >>> m['e'].remove(f)
+    >>> m['e']()
+    >>> m['e'] += (f, g)
+    >>> m['e'](10)
     f(10)
     g(10)
-    >>> del m.e[0]
-    >>> m.e(2)
+    >>> del m['e'][0]
+    >>> m['e'](2)
     g(2)
     '''
     def __init__(self, app=None):
         self.app = app
         super(EventManager, self).__init__(Event)
 
-    def __getattr__(self, name):
-        if name.startswith('_'):
-            return super(Event, self).__getattr__(name)
-        return self[name]
+
+class EventSource(object):
+    '''
+    Base class for event source classes.
+
+    This serves as both abstract base and public interface reference.
+    '''
+    def __init__(self, manager, app=None):
+        '''
+        :param manager: event manager
+        :type manager: browsepy.manager.EventManager
+        :type app: optional application object, their
+                   :attr:`flask.Flask.config` will be honored.
+        :type app: flask.Flask.config
+        '''
+        self.manager = manager
+        self.app = app
+        self.reload()
+
+    def reload(self):
+        '''
+        Clean and reload event source.
+
+        This method should respond to :attr:`app` config changes.
+        '''
+        self.clear()
+
+    def clear(self):
+        '''
+        Clean event source internal state.
+
+        Event sources must not trigger any event after clear.
+        '''
+        pass
+
+    @classmethod
+    def check(cls, app):
+        '''
+        Get wether this source should be added to
+        :class:`browsepy.manager.EventManager` or not.
+
+        :param app: application object
+        :type app: flask.Flask
+        :returns: False if should not be added, True otherwise
+        :rtype: bool
+        '''
+        return False
 
 
-class WathdogEventSource(object):
+class WatchdogEventSource(EventSource):
     observer_class = watchdog.observers.Observer
+    unsupported_observer_classes = {
+        watchdog.observers.polling.PollingObserver,
+        watchdog.observers.polling.PollingObserverVFS
+        }
     event_class = collections.namedtuple(
         'FSEvent', ('type', 'path', 'source', 'is_directory')
         )
@@ -117,6 +165,9 @@ class WathdogEventSource(object):
         self.reload()
 
     def dispatch(self, wevent):
+        '''
+        Handler for watchdog's observer.
+        '''
         event = self.event_class(
             self.event_map[wevent.event_type],
             wevent.dest_path if type == 'fs_move' else wevent.src_path,
@@ -132,6 +183,10 @@ class WathdogEventSource(object):
         self.manager[event_type_specific](event)
 
     def reload(self):
+        '''
+        Reload config, create an observer for path specified on
+        **base_directory** :attr:`app` config.
+        '''
         self.clear()
         path = self.app.config.get('base_directory') if self.app else None
         if not path:
@@ -149,9 +204,33 @@ class WathdogEventSource(object):
         self._observer = observer
 
     def clear(self):
+        '''
+        Stop current observer, so no event will be triggered after calling
+        this method.
+        '''
         observer = self._observer
         if observer:
             observer.unschedule_all()
             observer.stop()
             observer.join()
             self._observer = None
+
+    @classmethod
+    def check(cls, app):
+        '''
+        Get wether this source should be added to
+        :class:`browsepy.manager.EventManager` or not.
+
+        :class:`WatchdogEventSource` should not be added if **cache_enable**
+        if either False on app config or :class:`watchdog.observers.Observer`
+        points to a polling observer class (usually because current OS is not
+        supported).
+
+        :param app: application object
+        :type app: flask.Flask
+        :returns: False if should not be added, True otherwise
+        :rtype: bool
+        '''
+        if app and app.config.get('cache_enable'):
+            return cls.observer_class not in cls.unsupported_observer_classes
+        return False

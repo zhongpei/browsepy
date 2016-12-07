@@ -47,7 +47,7 @@ class EventManagerTest(unittest.TestCase):
         self.assertListEqual(a, [1, 1, 2, 2])
 
 
-class WathdogEventSourceTest(unittest.TestCase):
+class WatchdogEventSourceTest(unittest.TestCase):
     module = browsepy.event
     app_class = collections.namedtuple('App', ('config',))
     event_class = threading.Event
@@ -55,7 +55,7 @@ class WathdogEventSourceTest(unittest.TestCase):
     def setUp(self):
         self.base = tempfile.mkdtemp()
         self.manager = self.module.EventManager()
-        self.source = self.module.WathdogEventSource(
+        self.source = self.module.WatchdogEventSource(
             self.manager,
             self.app_class(config={
                 'base_directory': self.base
@@ -90,7 +90,9 @@ class WathdogEventSourceTest(unittest.TestCase):
         filepath = os.path.join(self.base, 'file')
         dirpath = os.path.join(self.base, 'dir')
 
-        self.manager.fs_any.append(lambda e: events.append((e.type, e.path)))
+        self.manager['fs_any'].append(
+            lambda e: events.append((e.type, e.path))
+            )
 
         with self.assertEvents('fs_any', 'fs_create', 'fs_modify',
                                'fs_create_file', 'fs_modify_directory'):

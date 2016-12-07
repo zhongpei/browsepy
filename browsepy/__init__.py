@@ -6,17 +6,19 @@ import os
 import os.path
 import json
 import base64
+import io
 
 from flask import Flask, Response, request, render_template, redirect, \
                   url_for, send_from_directory, stream_with_context, \
-                  make_response
+                  make_response, current_app
 from werkzeug.exceptions import NotFound
 
 from .__meta__ import __app__, __version__, __license__, __author__  # noqa
-from .manager import PluginManager
 from .file import Node, OutsideRemovableBase, OutsideDirectoryBase, \
                   secure_filename
+from . import event
 from . import compat
+from . import manager
 
 __basedir__ = os.path.abspath(os.path.dirname(compat.fsdecode(__file__)))
 
@@ -42,13 +44,18 @@ app.config.update(
         'browsepy_',
         '',
         ),
+    cache_enable=True,
+    cache_class='browsepy.cache:SimpleLRUCache',
+    cache_kwargs={},
+    cache_browse_key='view/browse<{sort}>/{path}',
+    browse_sort_properties=['text', 'type', 'modified', 'size']
     )
 app.jinja_env.add_extension('browsepy.extensions.HTMLCompress')
 
 if "BROWSEPY_SETTINGS" in os.environ:
     app.config.from_envvar("BROWSEPY_SETTINGS")
 
-plugin_manager = PluginManager(app)
+plugin_manager = manager.PluginManager(app)
 
 
 def iter_cookie_browse_sorting():
@@ -60,8 +67,13 @@ def iter_cookie_browse_sorting():
     '''
     try:
         data = request.cookies.get('browse-sorting', 'e30=').encode('ascii')
+        valid = current_app.config.get('browse_sort_properties', ())
         for path, prop in json.loads(base64.b64decode(data).decode('utf-8')):
-            yield path, prop
+            if prop.startswith('-'):
+                if prop[1:] in valid:
+                    yield path, prop
+            elif prop in valid:
+                yield path, prop
     except (ValueError, TypeError, KeyError) as e:
         logger.exception(e)
 
@@ -117,6 +129,37 @@ def browse_sortkey_reverse(prop):
         )
 
 
+def template_generator(template_name, **context):
+    '''
+    Template streaming response.
+
+    :param template_name: template
+    :param **context: parameters for templates.
+    :yields: HTML strings
+    '''
+    app.update_template_context(context)
+    template = app.jinja_env.get_template(template_name)
+    return template.generate(context)
+
+
+def caching_template_generator(cache_key, template_name, **context):
+    '''
+    Caching template streaming response.
+
+    :param template_name: template
+    :param **context: parameters for templates.
+    :yields: HTML strings
+    '''
+    cache = current_app.extensions['plugin_manager'].cache
+    buffer = io.TextIOBase()
+    app.update_template_context(context)
+    template = app.jinja_env.get_template(template_name)
+    for chunk in template.generate(context):
+        yield chunk
+        buffer.write(chunk)
+    cache[cache_key] = buffer.read(), request.url_root
+
+
 def stream_template(template_name, **context):
     '''
     Some templates can be huge, this function returns an streaming response,
@@ -126,9 +169,12 @@ def stream_template(template_name, **context):
     :param **context: parameters for templates.
     :yields: HTML strings
     '''
-    app.update_template_context(context)
-    template = app.jinja_env.get_template(template_name)
-    stream = template.generate(context)
+    cache_key = context.pop('cache_key', None)
+    if cache_key:
+        stream = caching_template_generator(
+            cache_key, template_name, **context)
+    else:
+        stream = template_generator(template_name, **context)
     return Response(stream_with_context(stream))
 
 
@@ -173,6 +219,19 @@ def sort(property, path):
 @app.route('/browse/<path:path>')
 def browse(path):
     sort_property = get_cookie_browse_sorting(path, 'text')
+
+    cache_manager = current_app.extensions.get('plugin_manager')
+    cache_key = current_app.config.get('cache_browse_key', '').format(
+        sort=sort_property,
+        path=path
+        )
+    if cache_manager:
+        data, url_root = cache_manager.cache.get(cache_key) or (None, None)
+        if data and url_root == request.url_root:
+            return Response(data)
+        elif not cache_manager.has_event_source(event.WatchdogEventSource):
+            cache_key = None
+
     sort_fnc, sort_reverse = browse_sortkey_reverse(sort_property)
 
     try:
@@ -180,6 +239,7 @@ def browse(path):
         if directory.is_directory:
             return stream_template(
                 'browse.html',
+                cache_key=cache_key,
                 file=directory,
                 sort_property=sort_property,
                 sort_fnc=sort_fnc,
