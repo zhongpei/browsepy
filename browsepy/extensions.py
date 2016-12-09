@@ -150,14 +150,16 @@ class JSONCompressContext(StateMachineCompressContext):
     current = 'object'
 
     def _minify(self, data, current, start, partial=False):
-        return data.replace(' ', '') if current == 'object' else data
+        if current == 'object':
+            return self.re_whitespace.sub('', data)
+        return data
 
     def _options(self, value, current, start):
         if current == 'escape':
             if value:
-                yield 0, value[0], current
+                yield 0, value[0], 'string'
         else:
-            supa = super(SGMLCompressContext, self)
+            supa = super(JSONCompressContext, self)
             for option in supa._options(value, current, start):
                 yield option
         yield len(value), '', None  # avoid value errors on empty min()

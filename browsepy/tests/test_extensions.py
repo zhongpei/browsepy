@@ -5,8 +5,9 @@ import jinja2
 import browsepy.extensions
 
 
-class TestHTMLCompress(unittest.TestCase):
-    extension = browsepy.extensions.HTMLCompress
+class TestCompressBase(unittest.TestCase):
+    extension = browsepy.extensions.CompressExtension
+    filename = 'test'
 
     def setUp(self):
         self.env = jinja2.Environment(
@@ -17,9 +18,14 @@ class TestHTMLCompress(unittest.TestCase):
     def render(self, html, **kwargs):
         env = self.env
         globals = env.make_globals(None)
-        code = env.compile(html, name='test.html', filename='test.html')
+        code = env.compile(html, name=self.filename, filename=self.filename)
         template = env.template_class.from_code(env, code, globals, None)
         return template.render(**kwargs)
+
+
+class TestHTMLCompress(TestCompressBase):
+    extension = browsepy.extensions.HTMLCompress
+    filename = 'test.html'
 
     def test_compress(self):
         html = self.render('''
@@ -63,3 +69,18 @@ class TestHTMLCompress(unittest.TestCase):
     def test_broken(self):
         html = self.render('<script>\n <a>   <a> asdf ')
         self.assertEqual(html, '<script>\n <a>   <a> asdf ')
+
+
+class TestJSONCompress(TestCompressBase):
+    extension = browsepy.extensions.JSONCompress
+    filename = 'test.json'
+
+    def test_compress(self):
+        json = self.render('''
+            {
+                "a": {{ a }},
+                "b": "this is a \\"{{ title }}\\"",
+                "c": -1e2
+            }
+            ''', title=42, a=True)
+        self.assertEqual(json, '{"a":True,"b":"this is a \\"42\\"","c":-1e2}')
