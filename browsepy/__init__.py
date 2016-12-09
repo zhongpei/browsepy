@@ -8,6 +8,7 @@ import json
 import base64
 import io
 import gzip
+import time
 
 from flask import Flask, request, render_template, redirect, send_file, \
                   url_for, send_from_directory, stream_with_context, \
@@ -17,6 +18,7 @@ from werkzeug.exceptions import NotFound
 from .__meta__ import __app__, __version__, __license__, __author__  # noqa
 from .file import Node, OutsideRemovableBase, OutsideDirectoryBase, \
                   secure_filename
+from .cache import cachedview
 from . import compat
 from . import manager
 
@@ -51,6 +53,7 @@ app.config.update(
     browse_sort_properties=['text', 'type', 'modified', 'size']
     )
 app.jinja_env.add_extension('browsepy.extensions.HTMLCompress')
+app.jinja_env.add_extension('browsepy.extensions.JSONCompress')
 
 if "BROWSEPY_SETTINGS" in os.environ:
     app.config.from_envvar("BROWSEPY_SETTINGS")
@@ -140,13 +143,14 @@ def cache_template_stream(key, stream):
     :yields: rendered jinja template chunks
     :ytype: str
     '''
+    ts = time.time()
     buffer = io.BytesIO()
     with gzip.GzipFile(mode='wb', fileobj=buffer) as f:
         for part in stream:
             yield part
             f.write(part.encode('utf-8'))
     cache = current_app.extensions['plugin_manager'].cache
-    cache.set(key, (buffer.getvalue(), request.url_root))
+    cache.set(key, (buffer.getvalue(), request.url_root, ts))
 
 
 def stream_template(template_name, **context):
@@ -166,7 +170,7 @@ def stream_template(template_name, **context):
     return current_app.response_class(stream_with_context(stream))
 
 
-def get_cached_response(key):
+def get_cached_response(key, cancel_key=None):
     '''
     Get cached response object from key.
 
@@ -176,8 +180,14 @@ def get_cached_response(key):
     :rtype: flask.Response
     '''
     cache = current_app.extensions['plugin_manager'].cache
-    data, url_root = cache.get(key) or (None, None)
-    if data and url_root == request.url_root:
+    cached, mints = cache.get_many(
+        key,
+        cancel_key or 'meta/cancel/{}'.format(key)
+        )
+    if not cached:
+        return
+    data, url_root, ts = cached
+    if data and url_root < request.url_root and (ts is None or ts > mints):
         if 'gzip' in request.headers.get('Accept-Encoding', '').lower():
             response = current_app.response_class(data)
             response.headers['Content-Encoding'] = 'gzip'
@@ -197,6 +207,18 @@ def template_globals():
         'manager': app.extensions['plugin_manager'],
         'len': len,
         }
+
+
+@app.route('/app/browserconfig.xml', endpoint='msapplication-config')
+@cachedview
+def msapplication_config():
+    return render_template('msapplication-config.xml')
+
+
+@app.route('/app/manifest.json', endpoint='android-manifest')
+@cachedview
+def android_manifest():
+    return render_template('android-manifest.json')
 
 
 @app.route('/sort/<string:property>', defaults={"path": ""})

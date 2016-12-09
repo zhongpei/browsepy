@@ -1,5 +1,8 @@
 
 import flask
+import unittest
+import contextlib
+import threading
 
 
 def clear_localstack(stack):
@@ -26,3 +29,36 @@ def clear_flask_context():
     '''
     clear_localstack(flask._app_ctx_stack)
     clear_localstack(flask._request_ctx_stack)
+
+
+def defaultHandlerFactory(evt):
+    '''
+    Default handler factory for :meth:`EventTestCase.assertEvents`.
+
+    :param evt: threading event object
+    :type evt: threading.Event
+    :returns: function accepting a browsepy event and setting threading event
+    :rtype: callable
+    '''
+    return lambda e: evt.set()
+
+
+class EventTestCase(unittest.TestCase):
+    event_class = threading.Event
+
+    @contextlib.contextmanager
+    def assertEvents(self, *etypes, handler_factory=defaultHandlerFactory):
+        evts = [
+            (etype, event, handler_factory(event))
+            for etype in etypes
+            for etype, event in ((etype, self.event_class()),)
+            ]
+        for etype, event, handler in evts:
+            self.events[etype].append(handler)
+        yield
+        for etype, event, handler in evts:
+            self.assertTrue(
+                event.wait(timeout=1),
+                'Event %r not received' % etype
+                )
+            self.events[etype].remove(handler)

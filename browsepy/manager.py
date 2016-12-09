@@ -5,6 +5,7 @@ import re
 import argparse
 import warnings
 import collections
+import time
 
 import flask
 
@@ -608,18 +609,13 @@ class EventPluginManager(RegistrablePluginManager):
     _default_event_sources = (
         event.WatchdogEventSource,
         )
+    _default_event_handlers = ()
 
     def __init__(self, app=None):
         self.event = event.EventManager()
         self._event_sources = []
         self._event_source_classes = set()
         super(EventPluginManager, self).__init__(app=app)
-
-    def load_events(self):
-        '''
-        Load default event handlers.
-        '''
-        pass
 
     def reload(self):
         '''
@@ -635,7 +631,8 @@ class EventPluginManager(RegistrablePluginManager):
         super(EventPluginManager, self).reload()
         for source_class in self._default_event_sources:
             self.register_event_source(source_class)
-        self.load_events()
+        for type, handler in self._default_event_handlers:
+            self.event[type].append(handler)
 
     def register_event_source(self, event_source_class):
         '''
@@ -879,9 +876,11 @@ class PluginManager(
     :type cache: werkzeug.contrib.cache.BaseCache
     '''
 
-    def load_events(self):
+    @cached_property
+    def _default_event_handlers(self):
         '''
-        Load default browsepy event handlers:
+        Iterable of pairs (event type, event handler) with default browsepy
+        event handlers.
 
         * **fs_any** clearing browse endpoint cache
         '''
@@ -898,6 +897,7 @@ class PluginManager(
         def clear_browse_cache(e):
             keyfmt = self.app.config['cache_browse_key'].format
             orderfmt = '{}{}'.format
+            self.cache.set('meta/mints', time.time())
             self.cache.delete_many(*[
                 keyfmt(sort=orderfmt(order, prop), path=urlpath)
                 for urlpath in event_urlpaths(e)
@@ -905,7 +905,9 @@ class PluginManager(
                 for order in ('', '-')
                 ])
 
-        self.event['fs_any'].append(clear_browse_cache)
+        return (
+            ('fs_any', clear_browse_cache),
+            )
 
     def clear(self):
         '''

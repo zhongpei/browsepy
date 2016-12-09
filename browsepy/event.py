@@ -222,7 +222,6 @@ class WatchdogEventSource(EventSource):
         :class:`browsepy.manager.EventManager` or not.
 
         :class:`WatchdogEventSource` should not be added if
-        **disk_cache_enable** if either False on app config or
         :class:`watchdog.observers.Observer` points to a polling observer
         class (because OS being not supported).
 
@@ -231,6 +230,4 @@ class WatchdogEventSource(EventSource):
         :returns: False if should not be added, True otherwise
         :rtype: bool
         '''
-        if app and app.config.get('disk_cache_enable'):
-            return cls.observer_class not in cls.unsupported_observer_classes
-        return False
+        return cls.observer_class not in cls.unsupported_observer_classes

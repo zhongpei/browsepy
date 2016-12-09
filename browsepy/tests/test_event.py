@@ -2,13 +2,12 @@
 import os
 import os.path
 import tempfile
-import contextlib
 import shutil
 import unittest
 import collections
 import browsepy.event
 import browsepy.manager
-import threading
+import browsepy.tests.utils as test_utils
 
 
 class EventTest(unittest.TestCase):
@@ -37,49 +36,30 @@ class EventManagerTest(unittest.TestCase):
     module = browsepy.event
 
     def setUp(self):
-        self.manager = self.module.EventManager()
+        self.events = self.module.EventManager()
 
     def test_subscribe(self):
         a = []
-        self.manager['test'].append(a.append)
-        self.manager['test'].append(a.append)
-        self.manager['test'](1)
-        self.manager['test'](2)
+        self.events['test'].append(a.append)
+        self.events['test'].append(a.append)
+        self.events['test'](1)
+        self.events['test'](2)
         self.assertListEqual(a, [1, 1, 2, 2])
 
 
-class WatchdogEventSourceTest(unittest.TestCase):
+class WatchdogEventSourceTest(test_utils.EventTestCase):
     module = browsepy.event
     app_class = collections.namedtuple('App', ('config',))
-    event_class = threading.Event
 
     def setUp(self):
         self.base = tempfile.mkdtemp()
-        self.manager = self.module.EventManager()
+        self.events = self.module.EventManager()
         self.source = self.module.WatchdogEventSource(
-            self.manager,
+            self.events,
             self.app_class(config={
                 'base_directory': self.base
                 })
             )
-
-    @contextlib.contextmanager
-    def assertEvents(self, *etypes,
-                     handler_factory=(lambda evt: (lambda e: evt.set()))):
-        evts = [
-            (etype, event, handler_factory(event))
-            for etype in etypes
-            for etype, event in ((etype, self.event_class()),)
-            ]
-        for etype, event, handler in evts:
-            self.manager[etype].append(handler)
-        yield
-        for etype, event, handler in evts:
-            self.assertTrue(
-                event.wait(timeout=1),
-                'Event %r not received' % etype
-                )
-            self.manager[etype].remove(handler)
 
     def tearDown(self):
         self.source.clear()
@@ -91,7 +71,7 @@ class WatchdogEventSourceTest(unittest.TestCase):
         filepath = os.path.join(self.base, 'file')
         dirpath = os.path.join(self.base, 'dir')
 
-        self.manager['fs_any'].append(
+        self.events['fs_any'].append(
             lambda e: events.append((e.type, e.path))
             )
 

@@ -228,9 +228,9 @@ class PlayableDirectory(Directory):
         return None
 
     def entries(self):
-        for file in super(PlayableDirectory, self)._listdir():
-            if PlayableFile.detect(file):
-                yield file
+        entries = filter(PlayableFile.detect, self._listdir())
+        for entry in sorted(entries, key=lambda file: file.name):
+            yield entries
 
 
 def detect_playable_mimetype(path, os_sep=os.sep):

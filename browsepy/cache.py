@@ -2,6 +2,8 @@
 import time
 import threading
 
+from functools import wraps
+from flask import request, current_app
 from werkzeug.contrib.cache import BaseCache
 
 
@@ -188,3 +190,19 @@ class SimpleLRUCache(BaseCache):
             self._full = False
             self._key = None
             return True
+
+
+def cachedview(timeout=5 * 60, key='view/%s'):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            cache_key = key % request.path
+            cache = current_app.extensions['plugin_manager'].cache
+            rv = cache.get(cache_key)
+            if rv is not None:
+                return rv
+            rv = f(*args, **kwargs)
+            cache.set(cache_key, rv, timeout=timeout)
+            return rv
+        return decorated_function
+    return decorator

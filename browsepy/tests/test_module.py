@@ -280,7 +280,7 @@ class TestCompat(unittest.TestCase):
             )
 
 
-class TestApp(unittest.TestCase):
+class TestApp(test_utils.EventTestCase):
     module = browsepy
     generic_page_class = Page
     list_page_class = ListPage
@@ -322,6 +322,7 @@ class TestApp(unittest.TestCase):
         self.start_files = [self.url_for('open', path='start/testfile.txt')]
         self.remove_files = [self.url_for('open', path='remove/testfile.txt')]
         self.upload_files = []
+        self.events = self.app.extensions['plugin_manager'].event
 
     def clear(self, path):
         assert path.startswith(self.base + os.sep), \
@@ -429,6 +430,26 @@ class TestApp(unittest.TestCase):
             Page404Exception,
             self.get, 'browse', path='..'
         )
+
+        self.assertRaises(
+            Page404Exception,
+            self.get, 'browse', path='~'
+        )
+
+    def test_browse_cache(self):
+        self.app.config['disk_cache_enable'] = True
+        self.app.extensions['plugin_manager'].reload()
+
+        basename = os.path.basename(self.base)
+        page = self.get('browse')
+        self.assertEqual(page.path, basename)
+        self.assertEqual(page.directories, self.base_directories)
+
+        with self.assertEvents('fs_any', 'fs_create', 'fs_create_file'):
+            open(os.path.join(self.start, 'asd'), 'w').close()
+
+        page = self.get('browse')
+        self.assertIn('asd', page.files)
 
     def test_open(self):
         content = b'hello world'
