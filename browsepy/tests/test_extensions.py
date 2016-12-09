@@ -15,9 +15,10 @@ class TestHTMLCompress(unittest.TestCase):
             )
 
     def render(self, html, **kwargs):
-        template = jinja2.Template(html)
-        template.filename = 'test.html'
-        template.env = self.env
+        env = self.env
+        globals = env.make_globals(None)
+        code = env.compile(html, name='test.html', filename='test.html')
+        template = env.template_class.from_code(env, code, globals, None)
         return template.render(**kwargs)
 
     def test_compress(self):

@@ -230,7 +230,7 @@ class PlayableDirectory(Directory):
     def entries(self):
         entries = filter(PlayableFile.detect, self._listdir())
         for entry in sorted(entries, key=lambda file: file.name):
-            yield entries
+            yield entry
 
 
 def detect_playable_mimetype(path, os_sep=os.sep):
