@@ -117,11 +117,11 @@ class ManagerTest(unittest.TestCase):
     def test_default_sources(self):
         class app(object):
             config = {
-                'disk_cache_enable': False
+                'fs_events_enable': False
                 }
         manager = self.module.EventPluginManager(app)
         self.assertFalse(manager.has_event_source(self.source_class))
-        app.config['disk_cache_enable'] = True
+        app.config['fs_events_enable'] = True
         manager.reload()
         self.assertTrue(manager.has_event_source(self.source_class))
 

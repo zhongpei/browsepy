@@ -47,6 +47,7 @@ app.config.update(
         '',
         ),
     disk_cache_enable=True,
+    fs_events_enable=True,
     cache_class='browsepy.cache:SimpleLRUCache',
     cache_kwargs={'maxsize': 32},
     cache_browse_key='view/browse<{sort}>/{path}',
@@ -55,8 +56,8 @@ app.config.update(
 app.jinja_env.add_extension('browsepy.extensions.HTMLCompress')
 app.jinja_env.add_extension('browsepy.extensions.JSONCompress')
 
-if "BROWSEPY_SETTINGS" in os.environ:
-    app.config.from_envvar("BROWSEPY_SETTINGS")
+if 'BROWSEPY_SETTINGS' in os.environ:
+    app.config.from_envvar('BROWSEPY_SETTINGS')
 
 plugin_manager = manager.PluginManager(app)
 
@@ -221,7 +222,7 @@ def android_manifest():
     return render_template('android-manifest.json')
 
 
-@app.route('/sort/<string:property>', defaults={"path": ""})
+@app.route('/sort/<string:property>', defaults={'path': ''})
 @app.route('/sort/<string:property>/<path:path>')
 def sort(property, path):
     try:
@@ -241,16 +242,16 @@ def sort(property, path):
     raw_data = base64.b64encode(json.dumps(data).encode('utf-8'))
 
     # prevent cookie becoming too large
-    while len(raw_data) > 3975:  # 4000 - len('browse-sorting=""; Path=/')
+    while len(raw_data) > 3975:  # 4000 - len('browse-sorting=''; Path=/')
         data.pop(0)
         raw_data = base64.b64encode(json.dumps(data).encode('utf-8'))
 
-    response = redirect(url_for(".browse", path=directory.urlpath))
+    response = redirect(url_for('.browse', path=directory.urlpath))
     response.set_cookie('browse-sorting', raw_data)
     return response
 
 
-@app.route("/browse", defaults={"path": ""})
+@app.route('/browse', defaults={'path': ''})
 @app.route('/browse/<path:path>')
 def browse(path):
     sort_property = get_cookie_browse_sorting(path, 'text')
@@ -284,7 +285,7 @@ def browse(path):
     return NotFound()
 
 
-@app.route('/open/<path:path>', endpoint="open")
+@app.route('/open/<path:path>', endpoint='open')
 def open_file(path):
     try:
         file = Node.from_urlpath(path)
@@ -295,7 +296,7 @@ def open_file(path):
     return NotFound()
 
 
-@app.route("/download/file/<path:path>")
+@app.route('/download/file/<path:path>')
 def download_file(path):
     try:
         file = Node.from_urlpath(path)
@@ -306,7 +307,7 @@ def download_file(path):
     return NotFound()
 
 
-@app.route("/download/directory/<path:path>.tgz")
+@app.route('/download/directory/<path:path>.tgz')
 def download_directory(path):
     try:
         directory = Node.from_urlpath(path)
@@ -317,7 +318,7 @@ def download_directory(path):
     return NotFound()
 
 
-@app.route("/remove/<path:path>", methods=("GET", "POST"))
+@app.route('/remove/<path:path>', methods=('GET', 'POST'))
 def remove(path):
     try:
         file = Node.from_urlpath(path)
@@ -337,11 +338,11 @@ def remove(path):
     except OutsideRemovableBase:
         return NotFound()
 
-    return redirect(url_for(".browse", path=parent.urlpath))
+    return redirect(url_for('.browse', path=parent.urlpath))
 
 
-@app.route("/upload", defaults={'path': ''}, methods=("POST",))
-@app.route("/upload/<path:path>", methods=("POST",))
+@app.route('/upload', defaults={'path': ''}, methods=('POST',))
+@app.route('/upload/<path:path>', methods=('POST',))
 def upload(path):
     try:
         directory = Node.from_urlpath(path)
@@ -358,12 +359,12 @@ def upload(path):
                 filename = directory.choose_filename(filename)
                 filepath = os.path.join(directory.path, filename)
                 f.save(filepath)
-    return redirect(url_for(".browse", path=directory.urlpath))
+    return redirect(url_for('.browse', path=directory.urlpath))
 
 
-@app.route("/")
+@app.route('/')
 def index():
-    path = app.config["directory_start"] or app.config["directory_base"]
+    path = app.config['directory_start'] or app.config['directory_base']
     try:
         urlpath = Node(path).urlpath
     except OutsideDirectoryBase:

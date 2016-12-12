@@ -437,7 +437,8 @@ class TestApp(test_utils.EventTestCase):
         )
 
     def test_browse_cache(self):
-        self.app.config['disk_cache_enable'] = True
+        self.app.config['fs_events_enable'] = True
+        self.app.config['disk_events_enable'] = True
         self.app.extensions['plugin_manager'].reload()
 
         basename = os.path.basename(self.base)

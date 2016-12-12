@@ -230,4 +230,7 @@ class WatchdogEventSource(EventSource):
         :returns: False if should not be added, True otherwise
         :rtype: bool
         '''
-        return cls.observer_class not in cls.unsupported_observer_classes
+        return (
+            app and app.config.get('fs_events_enable') and
+            cls.observer_class not in cls.unsupported_observer_classes
+            )
