@@ -172,7 +172,9 @@ class Node(object):
         if check_path(self.path, self.app.config['directory_base']):
             return None
         parent = os.path.dirname(self.path) if self.path else None
-        return self.directory_class(parent, self.app) if parent else None
+        if parent and parent != self.path:
+            return self.directory_class(parent, self.app)
+        return None
 
     @cached_property
     def ancestors(self):
