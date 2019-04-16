@@ -165,29 +165,37 @@ class Node(object):
         return False
 
     @cached_property
-    def has_goprobe_logs(self):
+    def has_http_logs(self):
         gopath = os.path.join(self.path, "data/goprobe")
         d = datetime.datetime.now() - timedelta(days=1)
         date = d.strftime("%Y-%m-%d")
-        if self.has_file(gopath, "httplog_", date) and self.has_file(gopath, "pppauth_", date):
-            return True
-        return False
+        return self.has_file(gopath, "httplog_", date)
 
     @cached_property
-    def has_vpnserver_logs(self):
+    def has_pppauth_logs(self):
+        gopath = os.path.join(self.path, "data/goprobe")
+        d = datetime.datetime.now() - timedelta(days=1)
+        date = d.strftime("%Y-%m-%d")
+        return  self.has_file(gopath, "pppauth_", date)
+
+    @cached_property
+    def has_master_logs(self):
         vmaster = os.path.join(self.path, "vpnserver/master/server_log")
+
+        d = datetime.datetime.now() - timedelta(days=1)
+
+        date = d.strftime("%Y%m%d")
+        return self.has_file(vmaster, "vpn_", date)
+
+    @cached_property
+    def has_cluster_logs(self):
+
         vcluster = os.path.join(self.path, "vpnserver/cluster/0/server_log")
         d = datetime.datetime.now() - timedelta(days=1)
 
         date = d.strftime("%Y%m%d")
+        return self.has_file(vcluster, "vpn_", date)
 
-        if self.has_file(vmaster, "vpn_", date):
-            return True
-
-        if self.has_file(vcluster, "vpn_", date):
-            return True
-
-        return False
 
     @cached_property
     def subdirs(self):

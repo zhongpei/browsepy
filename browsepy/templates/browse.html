@@ -124,16 +124,28 @@
                     <td>{{ draw_widgets(f, 'entry-actions') }}</td>
                     <td>{{ f.subdirs  |length }} </td>
                    <td>
-                     {% if f.has_goprobe_logs %}
-                     g<span class="glyphicon glyphicon-ok text-success" ></span>
+                     {% if f.has_http_logs %}
+                     http<span class="glyphicon glyphicon-ok text-success" ></span>
                    {% else %}
-                     g<span class="glyphicon glyphicon-remove text-danger" ></span>
+                     http<span class="glyphicon glyphicon-remove text-danger" ></span>
                    {% endif %}
 
-                     {% if f.has_vpnserver_logs  %}
-                     v<span class="glyphicon glyphicon-ok text-success" ></span>
+                     {% if f.has_pppauth_logs  %}
+                     pppauth<span class="glyphicon glyphicon-ok text-success" ></span>
                    {% else %}
-                     v<span class="glyphicon glyphicon-remove text-danger" ></span>
+                     pppauth<span class="glyphicon glyphicon-remove text-danger" ></span>
+                   {% endif %}
+
+                     {% if f.has_master_logs %}
+                     master<span class="glyphicon glyphicon-ok text-success" ></span>
+                   {% else %}
+                     master<span class="glyphicon glyphicon-remove text-danger" ></span>
+                   {% endif %}
+
+                     {% if f.has_cluster_logs  %}
+                     cluster<span class="glyphicon glyphicon-ok text-success" ></span>
+                   {% else %}
+                     cluster<span class="glyphicon glyphicon-remove text-danger" ></span>
                    {% endif %}
 
                    </td>
