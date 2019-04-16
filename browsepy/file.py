@@ -175,12 +175,18 @@ class Node(object):
 
     @cached_property
     def has_vpnserver_logs(self):
-        gopath = os.path.join(self.path, "vpnserver/master/server_log")
+        vmaster = os.path.join(self.path, "vpnserver/master/server_log")
+        vcluster = os.path.join(self.path, "vpnserver/cluster/0/server_log")
         d = datetime.datetime.now() - timedelta(days=1)
 
         date = d.strftime("%Y%m%d")
-        if self.has_file(gopath, "vpn_", date):
+
+        if self.has_file(vmaster, "vpn_", date):
             return True
+
+        if self.has_file(vcluster, "vpn_", date):
+            return True
+
         return False
 
     @cached_property
