@@ -11,7 +11,7 @@ import random
 import datetime
 import logging
 import time
-
+from datetime import timedelta
 from flask import current_app, send_from_directory
 from werkzeug.utils import cached_property
 
@@ -155,9 +155,11 @@ class Node(object):
         return compat.pathconf(self.path)
 
     def has_file(self, path, perfix, include):
+        print(path, perfix, include)
         if not os.path.isdir(path):
             return False
-        for name in os.listdir(self.path):
+        for name in os.listdir(path):
+            print(os.path.join(path,name),name.startswith(perfix),name.find(include))
             if name.startswith(perfix) and name.find(include) != -1:
                 return True
         return False
@@ -165,7 +167,8 @@ class Node(object):
     @cached_property
     def has_goprobe_logs(self):
         gopath = os.path.join(self.path, "data/goprobe")
-        date = time.strftime("%Y-%m-%d", time.localtime())
+        d = datetime.datetime.now() - timedelta(days=1)
+        date = d.strftime("%Y-%m-%d")
         if self.has_file(gopath, "httplog_", date) and self.has_file(gopath, "pppauth_", date):
             return True
         return False
@@ -173,7 +176,9 @@ class Node(object):
     @cached_property
     def has_vpnserver_logs(self):
         gopath = os.path.join(self.path, "vpnserver/master/server_log")
-        date = time.strftime("%Y%m%d", time.localtime())
+        d = datetime.datetime.now() - timedelta(days=1)
+
+        date = d.strftime("%Y%m%d")
         if self.has_file(gopath, "vpn_", date):
             return True
         return False

@@ -125,13 +125,13 @@
                     <td>{{ f.subdirs  |length }} </td>
                    <td>
                      {% if f.has_goprobe_logs %}
-                     g<span class="glyphicon glyphicon-ok text-danger" ></span>
+                     g<span class="glyphicon glyphicon-ok text-success" ></span>
                    {% else %}
                      g<span class="glyphicon glyphicon-remove text-danger" ></span>
                    {% endif %}
 
                      {% if f.has_vpnserver_logs  %}
-                     v<span class="glyphicon glyphicon-ok text-danger" ></span>
+                     v<span class="glyphicon glyphicon-ok text-success" ></span>
                    {% else %}
                      v<span class="glyphicon glyphicon-remove text-danger" ></span>
                    {% endif %}
