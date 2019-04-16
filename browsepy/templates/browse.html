@@ -104,6 +104,7 @@
         <thead>
             <tr>
               {{ th('Name', 'text', 'text', 3) }}
+              {{ th('SubDirs', 'subdirs', 'numeric') }}
               {{ th('Mimetype', 'type') }}
               {{ th('Modified', 'modified', 'numeric') }}
               {{ th('Size', 'size', 'numeric') }}
@@ -120,6 +121,7 @@
                       <td></td>
                     {% endif %}
                     <td>{{ draw_widgets(f, 'entry-actions') }}</td>
+                    <td>{{ f.subdirs  |length }} </td>
                     <td>{{ f.type or '' }}</td>
                     <td>{{ f.modified or '' }}</td>
                     <td>{{ f.size or '' }}</td>

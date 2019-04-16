@@ -1,5 +1,12 @@
 .PHONY: doc clean pep8 coverage travis
 
+testit:
+	rm -fr ./dist
+	python setup.py bdist_wheel
+	yes|pip uninstall  ./dist/browsepy-0.5.6-py2.py3-none-any.whl
+	pip install  ./dist/browsepy-0.5.6-py2.py3-none-any.whl
+	browsepy
+
 test: pep8 flake8 eslint
 	python -c 'import yaml;yaml.load(open(".travis.yml").read())'
 ifdef debug

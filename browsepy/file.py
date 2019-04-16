@@ -155,6 +155,17 @@ class Node(object):
         return compat.pathconf(self.path)
 
     @cached_property
+    def subdirs(self):
+        if not os.path.isdir(self.path):
+            return []
+        chdirs = [name for name in os.listdir(self.path) if os.path.isdir(os.path.join(self.path,name))]
+        return chdirs
+
+    @cached_property
+    def subdirs_count(self):
+        return len(self.subdirs)
+
+    @cached_property
     def parent(self):
         '''
         Get parent node if available based on app config's directory_base.

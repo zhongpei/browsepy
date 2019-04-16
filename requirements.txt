@@ -1,5 +1,6 @@
 flask
 unicategories
+flask_httpauth
 
 # for python < 3.6
 scandir

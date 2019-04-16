@@ -8,15 +8,18 @@ import json
 import base64
 
 from flask import Response, request, render_template, redirect, \
-                  url_for, send_from_directory, stream_with_context, \
-                  make_response
+    url_for, send_from_directory, stream_with_context, \
+    make_response, g
+from flask_httpauth import HTTPBasicAuth
+import os
+
 from werkzeug.exceptions import NotFound
 
 from .appconfig import Flask
 from .manager import PluginManager
 from .file import Node, secure_filename
 from .exceptions import OutsideRemovableBase, OutsideDirectoryBase, \
-                        InvalidFilenameError, InvalidPathError
+    InvalidFilenameError, InvalidPathError
 from . import compat
 from . import __meta__ as meta
 
@@ -33,7 +36,7 @@ app = Flask(
     static_url_path='/static',
     static_folder=os.path.join(__basedir__, "static"),
     template_folder=os.path.join(__basedir__, "templates")
-    )
+)
 app.config.update(
     directory_base=compat.getcwd(),
     directory_start=None,
@@ -47,16 +50,29 @@ app.config.update(
         'browsepy.plugin',
         'browsepy_',
         '',
-        ),
+    ),
     exclude_fnc=None,
-    )
+)
 app.jinja_env.add_extension('browsepy.transform.htmlcompress.HTMLCompress')
+auth = HTTPBasicAuth()
+
 
 if 'BROWSEPY_SETTINGS' in os.environ:
     app.config.from_envvar('BROWSEPY_SETTINGS')
 
 plugin_manager = PluginManager(app)
 
+
+users = {
+    os.getenv("ADMIN_USER","admin"): os.getenv("ADMIN_PWD","password"),
+
+}
+
+@auth.get_password
+def get_pw(username):
+    if username in users:
+        return users.get(username)
+    return None
 
 def iter_cookie_browse_sorting(cookies):
     '''
@@ -110,24 +126,24 @@ def browse_sortkey_reverse(prop):
             lambda x: (
                 x.is_directory == reverse,
                 x.link.text.lower() if x.link and x.link.text else x.name
-                ),
+            ),
             reverse
-            )
+        )
     if prop == 'size':
         return (
             lambda x: (
                 x.is_directory == reverse,
                 x.stats.st_size
-                ),
+            ),
             reverse
-            )
+        )
     return (
         lambda x: (
             x.is_directory == reverse,
             getattr(x, prop, None)
-            ),
+        ),
         reverse
-        )
+    )
 
 
 def stream_template(template_name, **context):
@@ -150,11 +166,12 @@ def template_globals():
     return {
         'manager': app.extensions['plugin_manager'],
         'len': len,
-        }
+    }
 
 
 @app.route('/sort/<string:property>', defaults={"path": ""})
 @app.route('/sort/<string:property>/<path:path>')
+@auth.login_required
 def sort(property, path):
     try:
         directory = Node.from_urlpath(path)
@@ -168,7 +185,7 @@ def sort(property, path):
         (cpath, cprop)
         for cpath, cprop in iter_cookie_browse_sorting(request.cookies)
         if cpath != path
-        ]
+    ]
     data.append((path, property))
     raw_data = base64.b64encode(json.dumps(data).encode('utf-8'))
 
@@ -184,6 +201,7 @@ def sort(property, path):
 
 @app.route("/browse", defaults={"path": ""})
 @app.route('/browse/<path:path>')
+@auth.login_required
 def browse(path):
     sort_property = get_cookie_browse_sorting(path, 'text')
     sort_fnc, sort_reverse = browse_sortkey_reverse(sort_property)
@@ -197,13 +215,14 @@ def browse(path):
                 sort_property=sort_property,
                 sort_fnc=sort_fnc,
                 sort_reverse=sort_reverse
-                )
+            )
     except OutsideDirectoryBase:
         pass
     return NotFound()
 
 
 @app.route('/open/<path:path>', endpoint="open")
+@auth.login_required
 def open_file(path):
     try:
         file = Node.from_urlpath(path)
@@ -215,6 +234,7 @@ def open_file(path):
 
 
 @app.route("/download/file/<path:path>")
+@auth.login_required
 def download_file(path):
     try:
         file = Node.from_urlpath(path)
@@ -226,6 +246,7 @@ def download_file(path):
 
 
 @app.route("/download/directory/<path:path>.tgz")
+@auth.login_required
 def download_directory(path):
     try:
         directory = Node.from_urlpath(path)
@@ -237,6 +258,7 @@ def download_directory(path):
 
 
 @app.route("/remove/<path:path>", methods=("GET", "POST"))
+@auth.login_required
 def remove(path):
     try:
         file = Node.from_urlpath(path)
@@ -255,6 +277,7 @@ def remove(path):
 
 @app.route("/upload", defaults={'path': ''}, methods=("POST",))
 @app.route("/upload/<path:path>", methods=("POST",))
+@auth.login_required
 def upload(path):
     try:
         directory = Node.from_urlpath(path)
@@ -262,10 +285,10 @@ def upload(path):
         return NotFound()
 
     if (
-      not directory.is_directory or
-      not directory.can_upload or
-      directory.is_excluded
-      ):
+        not directory.is_directory or
+        not directory.can_upload or
+        directory.is_excluded
+    ):
         return NotFound()
 
     for v in request.files.listvalues():
@@ -279,11 +302,12 @@ def upload(path):
                 raise InvalidFilenameError(
                     path=directory.path,
                     filename=f.filename
-                    )
+                )
     return redirect(url_for(".browse", path=directory.urlpath))
 
 
 @app.route("/")
+@auth.login_required
 def index():
     path = app.config["directory_start"] or app.config["directory_base"]
     try:
@@ -291,6 +315,8 @@ def index():
     except OutsideDirectoryBase:
         return NotFound()
     return browse(urlpath)
+
+
 
 
 @app.after_request
@@ -321,3 +347,4 @@ def page_not_found_error(e):
 def internal_server_error(e):  # pragma: no cover
     logger.exception(e)
     return getattr(e, 'message', 'Internal server error'), 500
+
