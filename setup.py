@@ -94,13 +94,15 @@ setup(
         'browsepy': [
             'templates/*',
             'static/fonts/*',
+            'static/css/*',
+            'static/js/*',
             'static/*.*',  # do not capture directories
         ],
         'browsepy.plugin.player': [
             'templates/*',
             'static/*/*',
         ]},
-    install_requires=['flask', 'unicategories'] + extra_requires,
+    install_requires=['flask', 'unicategories', 'flask_httpauth'] + extra_requires,
     test_suite='browsepy.tests',
     test_runner='browsepy.tests.runner:DebuggerTextTestRunner',
     zip_safe=False,

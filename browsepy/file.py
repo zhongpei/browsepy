@@ -10,6 +10,7 @@ import string
 import random
 import datetime
 import logging
+import time
 
 from flask import current_app, send_from_directory
 from werkzeug.utils import cached_property
@@ -18,8 +19,7 @@ from . import compat
 from .compat import range
 from .stream import TarFileStream
 from .exceptions import OutsideDirectoryBase, OutsideRemovableBase, \
-                        PathTooLongError, FilenameTooLongError
-
+    PathTooLongError, FilenameTooLongError
 
 logger = logging.getLogger(__name__)
 unicode_underscore = '_'.decode('utf-8') if compat.PY_LEGACY else '_'
@@ -37,7 +37,7 @@ nt_device_names = (
     ('CON', 'PRN', 'AUX', 'NUL') +
     tuple(map('COM{}'.format, range(1, 10))) +
     tuple(map('LPT{}'.format, range(1, 10)))
-    )
+)
 fs_safe_characters = string.ascii_uppercase + string.digits
 
 
@@ -103,8 +103,8 @@ class Node(object):
                     file=self,
                     css='remove',
                     endpoint='remove'
-                    )
                 )
+            )
         return widgets + self.plugin_manager.get_widgets(file=self)
 
     @cached_property
@@ -154,11 +154,35 @@ class Node(object):
         '''
         return compat.pathconf(self.path)
 
+    def has_file(self, path, perfix, include):
+        if not os.path.isdir(path):
+            return False
+        for name in os.listdir(self.path):
+            if name.startswith(perfix) and name.find(include) != -1:
+                return True
+        return False
+
+    @cached_property
+    def has_goprobe_logs(self):
+        gopath = os.path.join(self.path, "data/goprobe")
+        date = time.strftime("%Y-%m-%d", time.localtime())
+        if self.has_file(gopath, "httplog_", date) and self.has_file(gopath, "pppauth_", date):
+            return True
+        return False
+
+    @cached_property
+    def has_vpnserver_logs(self):
+        gopath = os.path.join(self.path, "vpnserver/master/server_log")
+        date = time.strftime("%Y%m%d", time.localtime())
+        if self.has_file(gopath, "vpn_", date):
+            return True
+        return False
+
     @cached_property
     def subdirs(self):
         if not os.path.isdir(self.path):
             return []
-        chdirs = [name for name in os.listdir(self.path) if os.path.isdir(os.path.join(self.path,name))]
+        chdirs = [name for name in os.listdir(self.path) if os.path.isdir(os.path.join(self.path, name))]
         return chdirs
 
     @cached_property
@@ -372,8 +396,8 @@ class File(Node):
                 'link',
                 file=self,
                 endpoint='open'
-                )
-            ]
+            )
+        ]
         if self.can_download:
             widgets.append(
                 self.plugin_manager.create_widget(
@@ -382,8 +406,8 @@ class File(Node):
                     file=self,
                     css='download',
                     endpoint='download_file'
-                    )
                 )
+            )
         return widgets + super(File, self).widgets
 
     @cached_property
@@ -419,7 +443,7 @@ class File(Node):
             size, unit = fmt_size(
                 self.stats.st_size,
                 self.app.config['use_binary_multiples'] if self.app else False
-                )
+            )
         except OSError:
             return None
         if unit == binary_units[0]:
@@ -510,8 +534,8 @@ class Directory(Node):
                 'link',
                 file=self,
                 endpoint='browse'
-                )
-            ]
+            )
+        ]
         if self.can_upload:
             widgets.extend((
                 self.plugin_manager.create_widget(
@@ -534,8 +558,8 @@ class Directory(Node):
                     file=self,
                     text='Upload',
                     endpoint='upload'
-                    )
-                ))
+                )
+            ))
         if self.can_download:
             widgets.append(
                 self.plugin_manager.create_widget(
@@ -544,8 +568,8 @@ class Directory(Node):
                     file=self,
                     css='download',
                     endpoint='download_directory'
-                    )
                 )
+            )
         return widgets + super(Directory, self).widgets
 
     @cached_property
@@ -637,9 +661,9 @@ class Directory(Node):
                 self.path,
                 self.app.config['directory_tar_buffsize'],
                 self.app.config['exclude_fnc'],
-                ),
+            ),
             mimetype="application/octet-stream"
-            )
+        )
 
     def contains(self, filename):
         '''
@@ -701,7 +725,7 @@ class Directory(Node):
                 'app': self.app,
                 'parent': self,
                 'is_excluded': False
-                }
+            }
             try:
                 if precomputed_stats and not entry.is_symlink():
                     kwargs['stats'] = entry.stat()
@@ -849,10 +873,10 @@ def check_forbidden_filename(filename,
     :rtype: bool
     '''
     return (
-      filename in restricted_names or
-      destiny_os == 'nt' and
-      filename.split('.', 1)[0].upper() in nt_device_names
-      )
+        filename in restricted_names or
+        destiny_os == 'nt' and
+        filename.split('.', 1)[0].upper() in nt_device_names
+    )
 
 
 def check_path(path, base, os_sep=os.sep):
@@ -887,7 +911,7 @@ def check_base(path, base, os_sep=os.sep):
     return (
         check_path(path, base, os_sep) or
         check_under_base(path, base, os_sep)
-        )
+    )
 
 
 def check_under_base(path, base, os_sep=os.sep):
@@ -928,7 +952,7 @@ def secure_filename(path, destiny_os=os.name, fs_encoding=compat.FS_ENCODING):
             nt_restricted_chars
             if destiny_os == 'nt' else
             restricted_chars
-            ))
+        ))
     path = path.strip(' .')  # required by nt, recommended for others
 
     if check_forbidden_filename(path, destiny_os=destiny_os):
@@ -943,7 +967,7 @@ def secure_filename(path, destiny_os=os.name, fs_encoding=compat.FS_ENCODING):
         'os_name': destiny_os,
         'fs_encoding': fs_encoding,
         'errors': underscore_replace,
-        }
+    }
     fs_encoded_path = compat.fsencode(path, **kwargs)
     fs_decoded_path = compat.fsdecode(fs_encoded_path, **kwargs)
     return fs_decoded_path
@@ -989,5 +1013,5 @@ def scandir(path, app=None):
             item
             for item in compat.scandir(path)
             if not exclude(item.path)
-            )
+        )
     return compat.scandir(path)

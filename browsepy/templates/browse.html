@@ -85,7 +85,7 @@
       </li>
     {% endfor %}
     {% if file.name %}
-      <li><span>{{ file.name }}</span></li>
+      <li><span>{{ file.name }}({{ file.subdirs  |length }})</span></li>
     {% endif %}
   </ol>
 </h1>
@@ -105,6 +105,7 @@
             <tr>
               {{ th('Name', 'text', 'text', 3) }}
               {{ th('SubDirs', 'subdirs', 'numeric') }}
+               {{ th('LogCheck', 'logcheck') }}
               {{ th('Mimetype', 'type') }}
               {{ th('Modified', 'modified', 'numeric') }}
               {{ th('Size', 'size', 'numeric') }}
@@ -122,6 +123,20 @@
                     {% endif %}
                     <td>{{ draw_widgets(f, 'entry-actions') }}</td>
                     <td>{{ f.subdirs  |length }} </td>
+                   <td>
+                     {% if f.has_goprobe_logs %}
+                     g<span class="glyphicon glyphicon-ok text-danger" ></span>
+                   {% else %}
+                     g<span class="glyphicon glyphicon-remove text-danger" ></span>
+                   {% endif %}
+
+                     {% if f.has_vpnserver_logs  %}
+                     v<span class="glyphicon glyphicon-ok text-danger" ></span>
+                   {% else %}
+                     v<span class="glyphicon glyphicon-remove text-danger" ></span>
+                   {% endif %}
+
+                   </td>
                     <td>{{ f.type or '' }}</td>
                     <td>{{ f.modified or '' }}</td>
                     <td>{{ f.size or '' }}</td>
